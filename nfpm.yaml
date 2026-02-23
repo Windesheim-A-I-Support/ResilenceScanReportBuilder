@@ -7,8 +7,8 @@ maintainer: "Your Name <you@example.com>"   # TODO
 homepage: "https://github.com/${GITHUB_REPOSITORY}"
 
 contents:
-  # Install the full onedir bundle to /opt
-  - src: dist/${REPO_NAME}/
+  # Install the full onedir bundle to /opt (** preserves subdirectory structure)
+  - src: dist/${REPO_NAME}/**
     dst: /opt/${REPO_NAME}/
 
   # Symlink main binary onto PATH
