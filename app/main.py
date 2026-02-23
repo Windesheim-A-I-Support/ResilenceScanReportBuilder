@@ -45,7 +45,7 @@ class MainWindow(QMainWindow):
 
         layout = QVBoxLayout()
 
-        self.label = QLabel("Press the button to run Python task")
+        self.label = QLabel("Click Run Task to check the Python environment")
         layout.addWidget(self.label)
 
         self.button = QPushButton("Run Task")
