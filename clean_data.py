@@ -1,454 +1,546 @@
-import pandas as pd
+"""
+clean_data.py — validates and cleans data/cleaned_master.csv in-place.
+
+Called by the GUI's "Clean Data" button via clean_and_fix() -> (bool, str).
+Also runnable standalone: python clean_data.py
+"""
+
+import json
 import os
-import re
-from pathlib import Path
-from datetime import datetime
 import shutil
+import sys
+from datetime import datetime
+from pathlib import Path
 
-# Configuration
-DATA_DIR = "/app/data"
-INPUT_PATH = "/app/outputs/cleaned_master.csv"
-BACKUP_DIR = os.path.join(DATA_DIR, "backups")
+import numpy as np
+import pandas as pd
 
-# Required columns for report generation
-REQUIRED_COLUMNS = ["company_name", "name"]
-RECOMMENDED_COLUMNS = ["email_address", "submitdate", "sector"]
-
-
-def create_backup(file_path):
-    """Create a timestamped backup of a file."""
-    if not Path(file_path).exists():
-        return None
-
-    os.makedirs(BACKUP_DIR, exist_ok=True)
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = Path(file_path).stem
-    ext = Path(file_path).suffix
-    backup_path = os.path.join(BACKUP_DIR, f"{filename}_{timestamp}{ext}")
-
-    shutil.copy2(file_path, backup_path)
-    print(f"[BACKUP] Backup created: {backup_path}")
-    return backup_path
-
-
-def validate_required_columns(df, issues):
-    """
-    Check if required columns exist in the dataframe.
-    Returns True if all required columns are present.
-    """
-    print("\n[SAMPLE] Validating required columns...")
-
-    df_cols_lower = [col.lower() for col in df.columns]
-    missing_required = []
-    missing_recommended = []
-
-    # Check required columns
-    for req_col in REQUIRED_COLUMNS:
-        if req_col.lower() not in df_cols_lower:
-            missing_required.append(req_col)
-            issues.append(f"[ERROR] CRITICAL: Required column '{req_col}' not found")
-
-    # Check recommended columns
-    for rec_col in RECOMMENDED_COLUMNS:
-        if rec_col.lower() not in df_cols_lower:
-            missing_recommended.append(rec_col)
-            issues.append(
-                f"[WARNING]  WARNING: Recommended column '{rec_col}' not found"
-            )
-
-    if missing_required:
-        print(f"   [ERROR] Missing required columns: {', '.join(missing_required)}")
-        return False
-
-    print("   [OK] All required columns present")
-
-    if missing_recommended:
-        print(
-            f"   [WARNING]  Missing recommended columns: {', '.join(missing_recommended)}"
-        )
-
-    return True
-
-
-def fix_company_names(df, issues):
-    """
-    Fix company name column - removes rows with invalid values.
-    """
-    print("\n[COMPANY] Cleaning company names...")
-
-    if "company_name" not in df.columns:
-        issues.append("[ERROR] Cannot clean company names - column not found")
-        return df
-
-    initial_count = len(df)
-
-    # Remove rows with empty/null/invalid company names
-    df = df[df["company_name"].notna()]
-    df = df[df["company_name"].astype(str).str.strip() != ""]
-    df = df[df["company_name"].astype(str).str.strip() != "-"]
-    df = df[df["company_name"].astype(str).str.lower().str.strip() != "unknown"]
-
-    # Trim whitespace
-    df["company_name"] = df["company_name"].astype(str).str.strip()
-
-    removed_count = initial_count - len(df)
-
-    if removed_count > 0:
-        print(f"   [REMOVE]  Removed {removed_count} rows with invalid company names")
-        issues.append(f"Removed {removed_count} rows with invalid company names")
+# ---------------------------------------------------------------------------
+# Path resolution — works in development (repo root) and frozen PyInstaller
+# ---------------------------------------------------------------------------
+if getattr(sys, "frozen", False):
+    # Frozen: user-writable data lives outside the read-only bundle
+    if sys.platform == "win32":
+        _user_base = Path(os.environ.get("APPDATA", Path.home())) / "ResilienceScan"
     else:
-        print("   [OK] All company names valid")
+        _user_base = Path.home() / ".local" / "share" / "resiliencescan"
+else:
+    # Development: data/ sits at repo root alongside this script
+    _user_base = Path(__file__).resolve().parent
 
-    return df
+DATA_DIR = _user_base / "data"
+INPUT_PATH = DATA_DIR / "cleaned_master.csv"
+BACKUP_DIR = DATA_DIR / "backups"
+VALIDATION_LOG = DATA_DIR / "cleaning_validation_log.json"
+CLEANING_REPORT = DATA_DIR / "cleaning_report.txt"
+REPLACEMENT_LOG = DATA_DIR / "value_replacements_log.csv"
 
-
-def fix_person_names(df, issues):
-    """
-    Fix person name column - trims whitespace.
-    """
-    print("\n[PERSON] Cleaning person names...")
-
-    if "name" not in df.columns:
-        issues.append("[WARNING]  Name column not found")
-        return df
-
-    # Count empty/null values
-    empty_count = df["name"].isna().sum()
-    empty_count += (df["name"].astype(str).str.strip() == "").sum()
-
-    if empty_count > 0:
-        print(
-            f"   [WARNING]  Found {empty_count} empty names (reports will use 'Unknown')"
-        )
-        issues.append(f"Found {empty_count} empty person names")
-
-    # Trim whitespace for non-empty values
-    df.loc[df["name"].notna(), "name"] = (
-        df.loc[df["name"].notna(), "name"].astype(str).str.strip()
-    )
-
-    print("   [OK] Person names cleaned")
-
-    return df
-
-
-def fix_email_addresses(df, issues):
-    """
-    Fix email addresses - trim whitespace and validate format.
-    """
-    print("\n[EMAIL] Cleaning email addresses...")
-
-    if "email_address" not in df.columns:
-        issues.append("[WARNING]  Email address column not found")
-        return df
-
-    # Basic email regex
-    email_pattern = r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
-
-    # Trim whitespace
-    df.loc[df["email_address"].notna(), "email_address"] = (
-        df.loc[df["email_address"].notna(), "email_address"].astype(str).str.strip()
-    )
-
-    # Check email format
-    invalid_emails = 0
-    for email in df["email_address"]:
-        if pd.notna(email) and str(email).strip() != "":
-            if not re.match(email_pattern, str(email)):
-                invalid_emails += 1
-
-    if invalid_emails > 0:
-        print(
-            f"   [WARNING]  Found {invalid_emails} potentially invalid email addresses"
-        )
-        issues.append(f"Found {invalid_emails} potentially invalid email addresses")
-    else:
-        print("   [OK] All email addresses valid")
-
-    return df
+# ---------------------------------------------------------------------------
+# Column definitions
+# ---------------------------------------------------------------------------
+REQUIRED_COLUMNS = ["company_name", "name", "email_address"]
+SCORE_COLUMNS = [
+    "up__r",
+    "up__c",
+    "up__f",
+    "up__v",
+    "up__a",
+    "in__r",
+    "in__c",
+    "in__f",
+    "in__v",
+    "in__a",
+    "do__r",
+    "do__c",
+    "do__f",
+    "do__v",
+    "do__a",
+]
 
 
-def fix_numeric_columns(df, issues):
-    """
-    Fix score columns - ensure they contain numeric values.
-    Converts non-numeric values to NaN.
-    """
-    print("\n[CLEAN] Cleaning numeric score columns...")
+class DataCleaningValidator:
+    def __init__(self):
+        self.issues = []
+        self.warnings = []
+        self.info = []
+        self.removed_records = []
+        self.statistics = {
+            "initial_rows": 0,
+            "final_rows": 0,
+            "removed_rows": 0,
+            "records_with_insufficient_data": 0,
+            "records_with_no_scores": 0,
+            "duplicates_removed": 0,
+        }
 
-    score_columns = [
-        col
-        for col in df.columns
-        if col.startswith("up__")
-        or col.startswith("in__")
-        or col.startswith("do__")
-        or col.startswith("overall_")
-    ]
+    def log_issue(self, level, message, row_info=None):
+        """Log an issue with details."""
+        entry = {
+            "level": level,
+            "message": message,
+            "timestamp": datetime.now().isoformat(),
+        }
+        if row_info:
+            entry["row"] = row_info
 
-    if not score_columns:
-        print("   [INFO]  No score columns found")
-        return df
+        if level == "ERROR":
+            self.issues.append(entry)
+        elif level == "WARNING":
+            self.warnings.append(entry)
+        else:
+            self.info.append(entry)
 
-    print(f"   Found {len(score_columns)} score columns")
+        symbol = "[X]" if level == "ERROR" else "[!]" if level == "WARNING" else "[i]"
+        print(f"{symbol} [{level}] {message}")
 
-    total_fixed = 0
-    for col in score_columns:
-        # Try to convert to numeric, coercing errors
-        original = df[col].copy()
-        df[col] = pd.to_numeric(df[col], errors="coerce")
+    def create_backup(self, file_path):
+        """Create a timestamped backup of a file."""
+        try:
+            if not Path(file_path).exists():
+                self.log_issue("WARNING", f"Input file not found: {file_path}")
+                return None
 
-        # Count how many values were fixed
-        fixed_count = df[col].isna().sum() - original.isna().sum()
-        if fixed_count > 0:
-            total_fixed += fixed_count
+            BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = Path(file_path).stem
+            ext = Path(file_path).suffix
+            backup_path = BACKUP_DIR / f"{filename}_{timestamp}{ext}"
 
-    if total_fixed > 0:
-        print(f"   [FIX] Fixed {total_fixed} non-numeric values (converted to NaN)")
-        issues.append(f"Fixed {total_fixed} non-numeric values in score columns")
-    else:
-        print("   [OK] All score columns contain valid numeric values")
+            shutil.copy2(file_path, backup_path)
+            self.log_issue("INFO", f"Backup created: {backup_path}")
+            return backup_path
+        except Exception as e:
+            self.log_issue("ERROR", f"Failed to create backup: {e}")
+            return None
 
-    return df
+    def validate_columns(self, df):
+        """Validate that required columns exist."""
+        print("\n" + "=" * 70)
+        print("COLUMN VALIDATION")
+        print("=" * 70)
 
+        df_cols_lower = [col.lower() for col in df.columns]
+        missing_required = []
 
-def validate_data_sufficiency(df, issues):
-    """
-    Validate that companies have sufficient data for meaningful reports.
-    """
-    print("\n[DATA] Validating data sufficiency...")
+        for req_col in REQUIRED_COLUMNS:
+            if req_col.lower() not in df_cols_lower:
+                missing_required.append(req_col)
+                self.log_issue("ERROR", f"Required column '{req_col}' not found")
 
-    if "company_name" not in df.columns:
-        return
+        if missing_required:
+            raise ValueError(f"Missing required columns: {missing_required}")
 
-    # Count respondents per company
-    company_counts = df["company_name"].value_counts()
+        missing_scores = [s for s in SCORE_COLUMNS if s.lower() not in df_cols_lower]
+        if missing_scores:
+            self.log_issue("WARNING", f"Missing score columns: {missing_scores}")
 
-    # Check for companies with insufficient data
-    single_respondent = company_counts[company_counts == 1]
-    if len(single_respondent) > 0:
-        print(
-            f"   [WARNING]  WARNING: {len(single_respondent)} companies have only 1 respondent"
-        )
-        print("      These reports may have limited data/examples:")
-        for company in single_respondent.head(5).index:
-            print(f"      - {company}")
-        if len(single_respondent) > 5:
-            print(f"      ... and {len(single_respondent) - 5} more")
-        issues.append(
-            f"{len(single_respondent)} companies have only 1 respondent (limited data)"
-        )
+        self.log_issue("INFO", f"All required columns present: {REQUIRED_COLUMNS}")
 
-    # Check for missing dimension data
-    score_columns = [
-        col
-        for col in df.columns
-        if col.startswith("up__") or col.startswith("in__") or col.startswith("do__")
-    ]
+    def validate_record_completeness(self, df):
+        """Check each record for sufficient data to generate a report."""
+        print("\n" + "=" * 70)
+        print("RECORD COMPLETENESS VALIDATION")
+        print("=" * 70)
 
-    if score_columns:
-        # Group by company and check missing data
-        for company in df["company_name"].unique():
-            company_data = df[df["company_name"] == company]
-            missing_pct = (
-                company_data[score_columns].isna().sum().sum()
-                / (len(company_data) * len(score_columns))
-                * 100
-            )
+        records_to_keep = []
 
-            if missing_pct > 50:
-                print(
-                    f"   [WARNING]  {company}: {missing_pct:.0f}% of dimension data missing"
+        for idx, row in df.iterrows():
+            issues_found = []
+
+            if (
+                pd.isna(row.get("company_name"))
+                or str(row.get("company_name", "")).strip() == ""
+            ):
+                issues_found.append("No company name")
+
+            if pd.isna(row.get("name")) or str(row.get("name", "")).strip() == "":
+                issues_found.append("No person name")
+
+            if pd.isna(row.get("email_address")) or "@" not in str(
+                row.get("email_address", "")
+            ):
+                issues_found.append("Invalid/missing email")
+
+            # Count available scores
+            available_scores = 0
+            for score_col in SCORE_COLUMNS:
+                if score_col in df.columns:
+                    val = row[score_col]
+                    if pd.notna(val) and val not in ["?", "", " "]:
+                        try:
+                            float_val = float(str(val).replace(",", "."))
+                            if 0 <= float_val <= 5:
+                                available_scores += 1
+                        except ValueError:
+                            pass
+
+            min_scores_required = 5
+
+            if issues_found:
+                self.log_issue(
+                    "WARNING",
+                    f"Row {idx + 2}: {', '.join(issues_found)}",
+                    {
+                        "company": row.get("company_name", "N/A"),
+                        "person": row.get("name", "N/A"),
+                        "email": row.get("email_address", "N/A"),
+                    },
                 )
-                issues.append(f"{company}: {missing_pct:.0f}% dimension data missing")
+                self.removed_records.append(
+                    {
+                        "row": idx + 2,
+                        "company": row.get("company_name", "N/A"),
+                        "person": row.get("name", "N/A"),
+                        "reason": ", ".join(issues_found),
+                    }
+                )
+                continue
 
+            if available_scores < min_scores_required:
+                self.log_issue(
+                    "WARNING",
+                    f"Row {idx + 2}: Insufficient data ({available_scores}/15 scores)",
+                    {
+                        "company": row.get("company_name", "N/A"),
+                        "person": row.get("name", "N/A"),
+                        "available_scores": available_scores,
+                    },
+                )
+                self.removed_records.append(
+                    {
+                        "row": idx + 2,
+                        "company": row.get("company_name", "N/A"),
+                        "person": row.get("name", "N/A"),
+                        "reason": f"Only {available_scores} valid scores (need {min_scores_required})",
+                    }
+                )
+                self.statistics["records_with_insufficient_data"] += 1
+                continue
 
-def generate_cleaning_report(df, issues, original_count):
-    """
-    Generate a summary report of cleaning actions.
-    """
-    print("\n" + "=" * 70)
-    print("[DATA] DATA CLEANING REPORT")
-    print("=" * 70)
+            records_to_keep.append(idx)
 
-    print("\n[OK] CLEANED DATA:")
-    print(f"   - Original records: {original_count}")
-    print(f"   - Final records: {len(df)} ({original_count - len(df)} removed)")
-    print(f"   - Total columns: {len(df.columns)}")
+        if records_to_keep:
+            df_clean = df.iloc[records_to_keep].copy()
+            self.log_issue(
+                "INFO",
+                f"Kept {len(records_to_keep)}/{len(df)} records after validation",
+            )
+            return df_clean
+        else:
+            self.log_issue("ERROR", "No valid records remaining after validation!")
+            return pd.DataFrame()
 
-    if "company_name" in df.columns:
-        print(f"   - Unique companies: {df['company_name'].nunique()}")
+    def clean_score_columns(self, df):
+        """Clean and convert score columns to numeric with detailed logging."""
+        print("\n" + "=" * 70)
+        print("SCORE COLUMN CLEANING")
+        print("=" * 70)
 
-        # Show distribution of respondents per company
-        company_counts = df["company_name"].value_counts()
-        print("\n   Company size distribution:")
-        print(f"     - 1 respondent:  {(company_counts == 1).sum()} companies")
-        print(
-            f"     - 2-5 respondents: {((company_counts >= 2) & (company_counts <= 5)).sum()} companies"
+        total_replacements = 0
+        replacement_log = []
+
+        for col in SCORE_COLUMNS:
+            if col not in df.columns:
+                continue
+
+            original_values = df[col].copy()
+            df[col] = df[col].astype(str)
+
+            invalid_mask = ~df[col].str.match(r"^[0-5](\.[0-9]+)?$", na=False)
+            invalid_mask = invalid_mask & (df[col] != "nan")
+
+            if invalid_mask.any():
+                invalid_count = invalid_mask.sum()
+                total_replacements += invalid_count
+
+                for idx in df[invalid_mask].head(5).index:
+                    original_val = original_values.loc[idx]
+                    company = (
+                        df.loc[idx, "company_name"]
+                        if "company_name" in df.columns
+                        else "Unknown"
+                    )
+                    person = df.loc[idx, "name"] if "name" in df.columns else "Unknown"
+                    replacement_log.append(
+                        {
+                            "row": int(idx),
+                            "company": company,
+                            "person": person,
+                            "column": col,
+                            "original_value": str(original_val),
+                            "action": "set_to_NaN (missing data)",
+                        }
+                    )
+
+                self.log_issue(
+                    "WARNING",
+                    f"{col}: {invalid_count} invalid value(s) (e.g., '{original_values[invalid_mask].iloc[0]}')",
+                )
+
+            df[col] = df[col].replace(["?", "", " ", "nan"], np.nan)
+            df[col] = df[col].str.replace(",", ".", regex=False)
+            df[col] = df[col].str.replace(r"[^0-9.-]", "", regex=True)
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+            df[col] = df[col].clip(lower=0, upper=5)
+
+        if replacement_log:
+            try:
+                DATA_DIR.mkdir(parents=True, exist_ok=True)
+                pd.DataFrame(replacement_log).to_csv(REPLACEMENT_LOG, index=False)
+                self.log_issue(
+                    "INFO",
+                    f"Saved {len(replacement_log)} replacement details to: {REPLACEMENT_LOG}",
+                )
+            except Exception as e:
+                self.log_issue("ERROR", f"Failed to save replacement log: {e}")
+
+        if total_replacements > 0:
+            self.log_issue(
+                "WARNING", f"Total invalid values replaced: {total_replacements}"
+            )
+        else:
+            self.log_issue("INFO", "All score values were valid")
+
+        self.log_issue("INFO", f"Cleaned {len(SCORE_COLUMNS)} score columns")
+        self.statistics["invalid_values_replaced"] = total_replacements
+
+        return df
+
+    def remove_duplicates(self, df):
+        """Remove duplicate records."""
+        print("\n" + "=" * 70)
+        print("DUPLICATE DETECTION")
+        print("=" * 70)
+
+        duplicates = df.duplicated(
+            subset=["company_name", "email_address"], keep="first"
         )
-        print(
-            f"     - 6-10 respondents: {((company_counts >= 6) & (company_counts <= 10)).sum()} companies"
-        )
-        print(f"     - 10+ respondents: {(company_counts > 10).sum()} companies")
+        duplicate_count = duplicates.sum()
 
-    if "sector" in df.columns:
-        print(f"   - Unique sectors: {df['sector'].nunique()}")
+        if duplicate_count > 0:
+            self.log_issue(
+                "WARNING",
+                f"Found {duplicate_count} duplicate records (keeping first occurrence)",
+            )
+            self.statistics["duplicates_removed"] = duplicate_count
+            df = df[~duplicates]
+        else:
+            self.log_issue("INFO", "No duplicates found")
 
-    if issues:
-        print(f"\n[WARNING]  ISSUES FOUND ({len(issues)}):")
-        for i, issue in enumerate(issues, 1):
-            print(f"   {i}. {issue}")
-    else:
-        print("\n[OK] NO ISSUES FOUND - Data is clean and sufficient!")
+        return df
 
-    print("=" * 70)
+    def save_validation_log(self):
+        """Save detailed validation log as JSON."""
+        try:
+            DATA_DIR.mkdir(parents=True, exist_ok=True)
+            stats = {
+                k: int(v) if isinstance(v, (np.int64, np.int32)) else v
+                for k, v in self.statistics.items()
+            }
+            log_data = {
+                "timestamp": datetime.now().isoformat(),
+                "statistics": stats,
+                "errors": self.issues,
+                "warnings": self.warnings,
+                "info": self.info,
+                "removed_records": self.removed_records,
+            }
+            with open(VALIDATION_LOG, "w") as f:
+                json.dump(log_data, f, indent=2)
+            self.log_issue("INFO", f"Validation log saved: {VALIDATION_LOG}")
+        except Exception as e:
+            self.log_issue("ERROR", f"Failed to save validation log: {e}")
+
+    def generate_report(self):
+        """Generate and save human-readable cleaning report."""
+        lines = [
+            "=" * 70,
+            "DATA CLEANING REPORT",
+            f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+            "=" * 70,
+            "\nSTATISTICS:",
+            f"  Initial rows: {self.statistics['initial_rows']}",
+            f"  Final rows: {self.statistics['final_rows']}",
+            f"  Removed rows: {self.statistics['removed_rows']}",
+            f"  Duplicates removed: {self.statistics['duplicates_removed']}",
+            f"  Records with insufficient data: {self.statistics['records_with_insufficient_data']}",
+            "\nREMOVED RECORDS:",
+        ]
+
+        if self.removed_records:
+            for record in self.removed_records:
+                lines.append(
+                    f"  Row {record['row']}: {record['company']} - {record['person']}"
+                )
+                lines.append(f"    Reason: {record['reason']}")
+        else:
+            lines.append("  None")
+
+        lines += ["\nERRORS:"]
+        lines += [f"  {i['message']}" for i in self.issues] or ["  None"]
+
+        lines += ["\nWARNINGS:"]
+        shown = self.warnings[:20]
+        lines += [f"  {w['message']}" for w in shown]
+        if len(self.warnings) > 20:
+            lines.append(f"  ... and {len(self.warnings) - 20} more warnings")
+        if not shown:
+            lines.append("  None")
+
+        lines += [
+            "\n" + "=" * 70,
+            "RECOMMENDATIONS:",
+        ]
+        if self.statistics["removed_rows"] > 0:
+            lines.append(
+                f"  [OK] {self.statistics['removed_rows']} records were excluded from the master CSV"
+            )
+            lines.append("  [OK] Review removed records above to ensure data quality")
+        if self.statistics["final_rows"] == 0:
+            lines.append("  [!] WARNING: No valid records remaining!")
+        else:
+            lines.append(
+                f"  [OK] {self.statistics['final_rows']} valid records ready for report generation"
+            )
+        lines.append("=" * 70)
+
+        report_text = "\n".join(lines)
+        try:
+            DATA_DIR.mkdir(parents=True, exist_ok=True)
+            with open(CLEANING_REPORT, "w") as f:
+                f.write(report_text)
+            print("\n" + report_text)
+            self.log_issue("INFO", f"Cleaning report saved: {CLEANING_REPORT}")
+        except Exception as e:
+            print("\n" + report_text)
+            self.log_issue("ERROR", f"Failed to save cleaning report: {e}")
 
 
 def clean_and_fix():
     """
-    Main function: Load cleaned_master.csv, fix data problems, save back.
-    Returns (success: bool, summary: str) tuple.
+    Main entry point called by the GUI.
+    Returns (success: bool, summary: str).
     """
-    print("=" * 70)
-    print("[CLEAN] DATA CLEANING - FIXING DATA QUALITY ISSUES")
-    print("=" * 70)
+    validator = DataCleaningValidator()
 
-    issues = []
-    summary_lines = []
-
-    # Step 0: Check if data directory exists
-    if not os.path.isdir("/app/data"):
-        print("\n[ERROR] FAILED: Data directory not found: /app/data")
-        print(
-            "   Please ensure the data directory exists and contains the converted data file"
-        )
-        return False, "Data directory not found"
-
-    # Step 1: Check if input file exists
-    if not Path(INPUT_PATH).exists():
-        print(f"\n[ERROR] FAILED: File not found: {INPUT_PATH}")
-        print(
-            "   Please run 'Convert Data' first to create cleaned_master.csv from your Excel file"
-        )
-        return False, "File not found"
-
-    # Step 2: Create backup
-    create_backup(INPUT_PATH)
-
-    # Step 3: Load the CSV
-    print(f"\n[LOAD] Loading data from: {INPUT_PATH}")
+    # Ensure data directory exists
     try:
-        df = pd.read_csv(INPUT_PATH)
-        original_count = len(df)
-        print(f"   [OK] Loaded: {len(df)} rows × {len(df.columns)} columns")
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
     except Exception as e:
-        print(f"   [ERROR] Failed to load: {e}")
-        return False, f"Failed to load: {e}"
+        return False, f"Failed to create data directory {DATA_DIR}: {e}"
 
-    # Step 4: Validate required columns
-    if not validate_required_columns(df, issues):
-        print("\n[ERROR] FAILED: Missing required columns")
-        return False, "Missing required columns"
+    # Check input file
+    if not INPUT_PATH.exists():
+        validator.log_issue("ERROR", f"Input file not found: {INPUT_PATH}")
+        return False, "File not found — please run 'Convert Data' first"
 
-    # Step 5: Fix company names (removes invalid rows)
-    rows_before = len(df)
-    df = fix_company_names(df, issues)
-    rows_removed = rows_before - len(df)
-    if rows_removed > 0:
-        summary_lines.append(f"Removed {rows_removed} invalid company name(s)")
+    # Backup
+    validator.create_backup(INPUT_PATH)
 
-    # Step 6: Fix person names (trim whitespace)
-    df = fix_person_names(df, issues)
-
-    # Step 7: Fix email addresses (trim whitespace, validate)
-    df = fix_email_addresses(df, issues)
-
-    # Step 7b: Remove rows without email addresses
-    rows_before = len(df)
-    if "email_address" in df.columns:
-        df = df[
-            df["email_address"].notna()
-            & (df["email_address"].astype(str).str.strip() != "")
-        ]
-        rows_removed = rows_before - len(df)
-        if rows_removed > 0:
-            summary_lines.append(
-                f"Removed {rows_removed} row(s) without email addresses"
-            )
-            print(f"   [OK] Removed {rows_removed} row(s) without email addresses")
-
-    # Step 7c: Remove duplicate records (same company, name, email)
-    rows_before = len(df)
-    if (
-        "company_name" in df.columns
-        and "name" in df.columns
-        and "email_address" in df.columns
-    ):
-        df = df.drop_duplicates(
-            subset=["company_name", "name", "email_address"], keep="first"
-        )
-        rows_removed = rows_before - len(df)
-        if rows_removed > 0:
-            summary_lines.append(f"Removed {rows_removed} duplicate record(s)")
-            print(f"   [OK] Removed {rows_removed} duplicate record(s)")
-
-    # Step 8: Fix numeric columns (convert to numeric)
-    score_cols_before = [
-        col
-        for col in df.columns
-        if col.startswith(("up__", "in__", "do__", "overall_"))
-    ]
-    fixed_values = 0
-    for col in score_cols_before:
-        original = df[col].copy()
-        df[col] = pd.to_numeric(df[col], errors="coerce")
-        fixed_values += df[col].isna().sum() - original.isna().sum()
-
-    if fixed_values > 0:
-        summary_lines.append(
-            f"Fixed {fixed_values} non-numeric value(s) in score columns"
-        )
-
-    # Step 9: Validate data sufficiency
-    validate_data_sufficiency(df, issues)
-
-    # Step 10: Generate cleaning report
-    generate_cleaning_report(df, issues, original_count)
-
-    # Step 10: Save cleaned data back to same file
-    print(f"\n[SAVE] Saving cleaned data to: {INPUT_PATH}")
-
+    # Load
+    validator.log_issue("INFO", f"Loading data from: {INPUT_PATH}")
     try:
-        df.to_csv(INPUT_PATH, index=False, encoding="utf-8")
-
-        print("   [OK] Saved successfully!")
-        print(f"   [DATA] Final shape: {df.shape[0]} rows × {df.shape[1]} columns")
-
-        # Show sample of cleaned data
-        print("\n[SAMPLE] Sample of cleaned data (first 3 rows, first 5 columns):")
-        display_cols = min(5, len(df.columns))
-        print(df.iloc[:3, :display_cols].to_string())
-
-        print("\n" + "=" * 70)
-        print("[OK] SUCCESS: Data cleaning completed!")
-        print("=" * 70)
-        print("\n[INFO]  Data is ready for report generation!")
-
-        # Build summary for GUI
-        if not summary_lines:
-            summary = "No issues found - data was already clean!"
-        else:
-            summary = "\n".join(summary_lines)
-
-        return True, summary
-
+        df = pd.read_csv(INPUT_PATH, low_memory=False)
+        validator.statistics["initial_rows"] = len(df)
+        validator.log_issue("INFO", f"Loaded {len(df)} rows, {len(df.columns)} columns")
     except Exception as e:
-        print(f"\n[ERROR] FAILED to save: {e}")
-        return False, f"Failed to save: {e}"
+        validator.log_issue("ERROR", f"Failed to load CSV: {e}")
+        return False, f"Failed to load CSV: {e}"
+
+    # Standardise column names
+    df.columns = df.columns.str.lower().str.strip()
+
+    # Validate columns
+    try:
+        validator.validate_columns(df)
+    except ValueError as e:
+        validator.log_issue("ERROR", str(e))
+        validator.save_validation_log()
+        validator.generate_report()
+        return False, str(e)
+
+    # Clean scores
+    df = validator.clean_score_columns(df)
+
+    # Completeness check
+    df = validator.validate_record_completeness(df)
+
+    if df.empty:
+        validator.log_issue("ERROR", "No valid records after cleaning!")
+        validator.statistics["final_rows"] = 0
+        validator.statistics["removed_rows"] = validator.statistics["initial_rows"]
+        validator.save_validation_log()
+        validator.generate_report()
+        return (
+            False,
+            "All records were removed during validation — no valid data remaining",
+        )
+
+    # Remove duplicates
+    df = validator.remove_duplicates(df)
+
+    # Update statistics
+    validator.statistics["final_rows"] = len(df)
+    validator.statistics["removed_rows"] = (
+        validator.statistics["initial_rows"] - validator.statistics["final_rows"]
+    )
+
+    # Ensure reportsent column exists
+    if "reportsent" not in df.columns:
+        df["reportsent"] = False
+        validator.log_issue("INFO", "Added 'reportsent' column (default: False)")
+
+    # Save
+    try:
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        df.to_csv(INPUT_PATH, index=False)
+        validator.log_issue("INFO", f"Saved cleaned data: {INPUT_PATH}")
+    except Exception as e:
+        validator.log_issue("ERROR", f"Failed to save CSV: {e}")
+        return False, f"Failed to save cleaned data: {e}"
+
+    # Artifacts
+    validator.save_validation_log()
+    validator.generate_report()
+
+    print("\n" + "=" * 70)
+    print("[OK] CLEANING COMPLETED SUCCESSFULLY")
+    print("=" * 70)
+    print(f"[DATA] Final dataset: {validator.statistics['final_rows']} records")
+    print(f"[REMOVED] Removed: {validator.statistics['removed_rows']} records")
+    print(f"[REPORT] {CLEANING_REPORT}")
+    print(f"[LOG] {VALIDATION_LOG}")
+    print("=" * 70)
+
+    # Summary for GUI
+    summary_parts = []
+    if validator.statistics["removed_rows"] > 0:
+        summary_parts.append(
+            f"Removed {validator.statistics['removed_rows']} invalid/incomplete record(s)"
+        )
+    if validator.statistics["duplicates_removed"] > 0:
+        summary_parts.append(
+            f"Removed {validator.statistics['duplicates_removed']} duplicate(s)"
+        )
+    if validator.statistics["records_with_insufficient_data"] > 0:
+        summary_parts.append(
+            f"Excluded {validator.statistics['records_with_insufficient_data']} record(s) with insufficient data"
+        )
+
+    summary = (
+        "\n".join(summary_parts)
+        if summary_parts
+        else "All records passed validation — no changes needed!"
+    )
+    summary += f"\n\nFinal dataset: {validator.statistics['final_rows']} valid records ready for reports"
+    summary += (
+        f"\n\nDetailed reports saved to:\n- {CLEANING_REPORT}\n- {VALIDATION_LOG}"
+    )
+
+    return True, summary
 
 
 if __name__ == "__main__":
-    # Set UTF-8 encoding for Windows console
-    import sys
-
     if sys.platform == "win32":
         import io
 
@@ -456,4 +548,5 @@ if __name__ == "__main__":
         sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8")
 
     success, summary = clean_and_fix()
-    exit(0 if success else 1)
+    print(f"\n{'SUCCESS' if success else 'FAILED'}: {summary}")
+    sys.exit(0 if success else 1)

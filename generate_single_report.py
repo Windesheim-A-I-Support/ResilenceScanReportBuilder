@@ -5,7 +5,7 @@ from datetime import datetime
 # Configuration
 ROOT = Path(__file__).resolve().parent
 TEMPLATE = ROOT / "ResilienceReport.qmd"
-OUTPUT_DIR = Path("/app/outputs")
+OUTPUT_DIR = ROOT / "reports"
 
 
 def generate_single_report(company_name, person_name=""):
