@@ -1,0 +1,349 @@
+name: CI / Release
+
+# Every push to main runs lint+test, then detects whether a new release is
+# needed.  If the version in pyproject.toml does not yet have a matching git
+# tag, the build matrix fires on all three platforms and a GitHub Release is
+# created automatically.  PRs only run lint+test.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: write
+
+jobs:
+  # ── Lint + Test ──────────────────────────────────────────────────────────────
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest ruff pyyaml
+
+      - name: Lint
+        run: ruff check .
+
+      - name: Format check
+        run: ruff format --check .
+
+      - name: Test
+        run: pytest --maxfail=1 --disable-warnings -q
+
+  # ── Detect whether a new release is needed ───────────────────────────────────
+  version-check:
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    outputs:
+      release: ${{ steps.check.outputs.release }}
+      version: ${{ steps.check.outputs.version }}
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0   # need full tag history
+
+      - name: Check if version tag already exists
+        id: check
+        run: |
+          VERSION=$(python - <<'EOF'
+          import re
+          m = re.search(r'^version\s*=\s*["\']([^"\']+)', open('pyproject.toml').read(), re.M)
+          print(m.group(1) if m else '')
+          EOF
+          )
+
+          if [ -z "$VERSION" ]; then
+            echo "release=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if git tag --list | grep -qx "v${VERSION}"; then
+            echo "Tag v${VERSION} already exists — skipping release."
+            echo "release=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "New version v${VERSION} detected — will release."
+            echo "release=true"    >> "$GITHUB_OUTPUT"
+            echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          fi
+
+  # ── Build artifacts on all three platforms ───────────────────────────────────
+  build:
+    needs: version-check
+    if: needs.version-check.outputs.release == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            artifact: windows
+          - os: macos-latest
+            artifact: macos
+          - os: ubuntu-latest
+            artifact: linux
+    runs-on: ${{ matrix.os }}
+    env:
+      APP_VERSION: ${{ needs.version-check.outputs.version }}
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Set repo name
+        shell: bash
+        run: echo "REPO_NAME=${GITHUB_REPOSITORY#*/}" >> "$GITHUB_ENV"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Install Linux system libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            libxkbcommon-x11-0 libxcb-xinerama0 libxcb-cursor0 \
+            libegl1 libglib2.0-0
+
+      # ── Windows ──────────────────────────────────────────────────────────────
+      - name: Generate Windows version resource
+        if: runner.os == 'Windows'
+        shell: python
+        run: |
+          import os, textwrap
+          v = os.environ["APP_VERSION"].split(".")
+          major = int(v[0]); minor = int(v[1] if len(v)>1 else 0); patch = int(v[2] if len(v)>2 else 0)
+          repo = os.environ["REPO_NAME"]; ver = os.environ["APP_VERSION"]
+          txt = textwrap.dedent(f"""
+            VSVersionInfo(
+              ffi=FixedFileInfo(
+                filevers=({major},{minor},{patch},0), prodvers=({major},{minor},{patch},0),
+                mask=0x3f, flags=0x0, OS=0x40004, fileType=0x1, subtype=0x0, date=(0,0)),
+              kids=[
+                StringFileInfo([StringTable(u'040904B0',[
+                  StringStruct(u'CompanyName',      u''),
+                  StringStruct(u'FileDescription',  u'{repo}'),
+                  StringStruct(u'FileVersion',      u'{ver}'),
+                  StringStruct(u'InternalName',     u'{repo}'),
+                  StringStruct(u'OriginalFilename', u'{repo}.exe'),
+                  StringStruct(u'ProductName',      u'{repo}'),
+                  StringStruct(u'ProductVersion',   u'{ver}'),
+                ])]),
+                VarFileInfo([VarStruct(u'Translation',[1033,1200])])
+              ])
+          """).strip()
+          os.makedirs("packaging", exist_ok=True)
+          open("packaging/windows-version.txt","w").write(txt)
+
+      - name: Build Windows .exe
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          $icon = if (Test-Path "assets/icon.ico") { @("--icon","assets/icon.ico") } else { @() }
+          pyinstaller --clean --noconfirm --onefile --windowed `
+            @icon `
+            --version-file packaging/windows-version.txt `
+            --name "$env:REPO_NAME" `
+            app/main.py
+
+      - name: Install NSIS
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          # Search pre-installed locations first
+          $candidates = @(
+            "C:\Program Files (x86)\NSIS\makensis.exe",
+            "C:\Program Files\NSIS\makensis.exe"
+          )
+          $found = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $found) {
+            $cmd = Get-Command makensis -ErrorAction SilentlyContinue
+            $found = if ($cmd) { $cmd.Source } else { $null }
+          }
+          if (-not $found) {
+            Write-Host "NSIS not pre-installed, trying winget..."
+            winget install NSIS.NSIS --silent `
+              --accept-source-agreements --accept-package-agreements
+            Write-Host "winget done (rc=$LASTEXITCODE)"   # reset last-exit
+            $found = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          }
+          if (-not $found) {
+            Write-Host "::error::makensis.exe not found in any expected location"
+            exit 1
+          }
+          Write-Host "NSIS: $found"
+          echo "MAKENSIS=$found" >> $env:GITHUB_ENV
+
+      - name: Build Windows installer
+        if: runner.os == 'Windows'
+        shell: python
+        run: |
+          import os, subprocess, shutil, textwrap
+          repo = os.environ["REPO_NAME"]
+          ver  = os.environ["APP_VERSION"]
+          # Use absolute paths: NSIS defaults CWD to the script's directory,
+          # so relative paths like "dist\foo.exe" would resolve under packaging\.
+          ws   = os.environ.get("GITHUB_WORKSPACE", os.getcwd())
+          dist = os.path.join(ws, "dist")
+          nsi = textwrap.dedent(f"""
+            Unicode true
+            Name "{repo} {ver}"
+            OutFile "{dist}\\{repo}-{ver}-windows-setup.exe"
+            InstallDir "$PROGRAMFILES64\\{repo}"
+            RequestExecutionLevel admin
+            Page directory
+            Page instfiles
+            Section
+              SetOutPath "$INSTDIR"
+              File "{dist}\\{repo}.exe"
+              CreateShortcut "$DESKTOP\\{repo}.lnk" "$INSTDIR\\{repo}.exe"
+              WriteUninstaller "$INSTDIR\\Uninstall.exe"
+            SectionEnd
+            Section "Uninstall"
+              Delete "$INSTDIR\\{repo}.exe"
+              Delete "$INSTDIR\\Uninstall.exe"
+              Delete "$DESKTOP\\{repo}.lnk"
+              RMDir "$INSTDIR"
+            SectionEnd
+          """).lstrip()
+          os.makedirs("packaging", exist_ok=True)
+          with open("packaging\\installer.nsi", "w") as f:
+              f.write(nsi)
+          makensis = os.environ.get("MAKENSIS") \
+                  or shutil.which("makensis") \
+                  or r"C:\Program Files (x86)\NSIS\makensis.exe"
+          subprocess.run([makensis, "packaging\\installer.nsi"], check=True)
+
+      - name: Rename Windows portable artifact
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          Rename-Item "dist\$env:REPO_NAME.exe" `
+            "$env:REPO_NAME-$env:APP_VERSION-windows.exe"
+
+      # ── macOS ─────────────────────────────────────────────────────────────────
+      - name: Build macOS .app
+        if: runner.os == 'macOS'
+        run: |
+          ICON=""
+          [ -f "assets/icon.icns" ] && ICON="--icon assets/icon.icns"
+          [ -z "$ICON" ] && [ -f "assets/icon.ico" ] && ICON="--icon assets/icon.ico"
+          pyinstaller --clean --noconfirm --onefile --windowed \
+            $ICON \
+            --name "$REPO_NAME" \
+            app/main.py
+
+      - name: Package macOS .app.zip and .dmg
+        if: runner.os == 'macOS'
+        run: |
+          if [ -d "dist/$REPO_NAME.app" ]; then
+            cd dist
+            zip -r "${REPO_NAME}-${APP_VERSION}-macos.app.zip" "${REPO_NAME}.app"
+            cd ..
+            brew install create-dmg --quiet
+            create-dmg \
+              --volname "$REPO_NAME" \
+              --window-size 600 400 \
+              --icon-size 100 \
+              --icon "${REPO_NAME}.app" 150 190 \
+              --app-drop-link 450 190 \
+              "dist/${REPO_NAME}-${APP_VERSION}-macos.dmg" \
+              "dist/${REPO_NAME}.app" || true
+            rm -rf "dist/${REPO_NAME}.app"
+          fi
+
+      # ── Linux ─────────────────────────────────────────────────────────────────
+      - name: Build Linux binary
+        if: runner.os == 'Linux'
+        run: |
+          pyinstaller --clean --noconfirm --onefile \
+            --name "$REPO_NAME" \
+            app/main.py
+
+      - name: Generate .desktop file
+        if: runner.os == 'Linux'
+        run: |
+          APP_NAME=$(echo "$REPO_NAME" | sed 's/-/ /g; s/\b./\u&/g')
+          export APP_NAME
+          envsubst < packaging/template.desktop > "packaging/${REPO_NAME}.desktop"
+
+      - name: Package .deb and .rpm
+        if: runner.os == 'Linux'
+        run: |
+          go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
+          export PATH="$(go env GOPATH)/bin:$PATH"
+          APP_NAME=$(echo "$REPO_NAME" | sed 's/-/ /g; s/\b./\u&/g')
+          export APP_NAME
+          # Pre-expand all env vars so nfpm gets a concrete config
+          envsubst < nfpm.yaml > /tmp/nfpm-config.yaml
+          nfpm pkg --packager deb --config /tmp/nfpm-config.yaml \
+            --target "dist/${REPO_NAME}-${APP_VERSION}-amd64.deb"
+          nfpm pkg --packager rpm --config /tmp/nfpm-config.yaml \
+            --target "dist/${REPO_NAME}-${APP_VERSION}-x86_64.rpm"
+
+      - name: Package AppImage
+        if: runner.os == 'Linux'
+        run: |
+          mkdir -p AppDir/usr/bin
+          cp "dist/$REPO_NAME" AppDir/usr/bin/
+          cp "packaging/${REPO_NAME}.desktop" AppDir/
+          if [ -f "assets/icon.png" ]; then
+            cp assets/icon.png "AppDir/${REPO_NAME}.png"
+          else
+            python -c "
+          import struct, zlib
+          def chunk(t,d):
+            c=struct.pack('>I',len(d))+t+d
+            return c+struct.pack('>I',zlib.crc32(c[4:])&0xffffffff)
+          sig=b'\x89PNG\r\n\x1a\n'
+          open('AppDir/${REPO_NAME}.png','wb').write(
+            sig+chunk(b'IHDR',struct.pack('>IIBBBBB',1,1,8,2,0,0,0))
+               +chunk(b'IDAT',zlib.compress(b'\x00\xff\x00\x00'))
+               +chunk(b'IEND',b''))"
+          fi
+          wget -q https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x appimagetool-x86_64.AppImage
+          ARCH=x86_64 ./appimagetool-x86_64.AppImage --appimage-extract-and-run \
+            AppDir "dist/${REPO_NAME}-${APP_VERSION}-x86_64.AppImage"
+          rm "dist/$REPO_NAME"
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: release-${{ matrix.artifact }}
+          path: dist/*
+
+  # ── Create the GitHub Release and attach all artifacts ───────────────────────
+  publish:
+    needs: [version-check, build]
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/download-artifact@v6
+        with:
+          pattern: release-*
+          path: release-assets
+          merge-multiple: true
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.version-check.outputs.version }}
+          name: v${{ needs.version-check.outputs.version }}
+          generate_release_notes: true
+          files: release-assets/*

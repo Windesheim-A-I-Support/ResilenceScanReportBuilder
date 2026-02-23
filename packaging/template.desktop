@@ -1,0 +1,6 @@
+[Desktop Entry]
+Name=${APP_NAME}
+Exec=${REPO_NAME}
+Icon=${REPO_NAME}
+Type=Application
+Categories=Utility;
