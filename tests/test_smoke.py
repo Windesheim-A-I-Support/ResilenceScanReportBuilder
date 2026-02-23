@@ -1,74 +1,58 @@
-"""Smoke tests for the dashboard app (no GUI required)."""
+"""Smoke tests for the ResilienceScan GUI and stub modules."""
 
-import importlib
 import pathlib
 import sys
-from unittest.mock import MagicMock
 
 import yaml
 
-
-def _ensure_pyside6_mock():
-    """Mock PySide6 if QtWidgets can't be loaded."""
-    try:
-        from PySide6 import QtWidgets  # noqa: F401
-    except (ModuleNotFoundError, ImportError):
-        mock = MagicMock()
-        sys.modules["PySide6"] = mock
-        sys.modules["PySide6.QtWidgets"] = mock
+# Ensure repo root is on sys.path so stub modules are importable in tests
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 
-def _load_main():
-    """Import (or reload) app.main, mocking PySide6 if needed."""
-    _ensure_pyside6_mock()
-    mod = importlib.import_module("app.main")
-    importlib.reload(mod)
-    return mod
+def test_stub_modules_importable():
+    """All stub modules should import without error."""
+    import convert_data
+    import dependency_manager
+    import email_tracker
+    import gui_system_check
+
+    assert callable(convert_data.convert_and_save)
+    assert hasattr(email_tracker, "EmailTracker")
+    assert hasattr(gui_system_check, "SystemChecker")
+    assert hasattr(dependency_manager, "DependencyManager")
+
+
+def test_email_tracker_interface():
+    """EmailTracker stub should implement the expected interface."""
+    from email_tracker import EmailTracker
+
+    tracker = EmailTracker()
+    stats = tracker.get_statistics()
+    assert stats == {"total": 0, "sent": 0, "pending": 0, "failed": 0}
+    imported, skipped = tracker.import_from_csv("/nonexistent.csv")
+    assert imported == 0
+    assert skipped == 0
+
+
+def test_system_checker_returns_dict():
+    """SystemChecker.check_all() should return a dict with expected keys."""
+    from gui_system_check import SystemChecker
+
+    result = SystemChecker().check_all()
+    for key in ("python", "R", "quarto", "tinytex"):
+        assert key in result
+        assert "ok" in result[key]
 
 
 def test_import_main_module():
-    """The app.main module should be importable without starting a GUI."""
-    mod = _load_main()
-    assert hasattr(mod, "MainWindow")
-    assert hasattr(mod, "APP_VERSION")
+    """app.main should be importable without starting a GUI window."""
+    import importlib
 
-
-def test_version_metadata_defaults(monkeypatch):
-    """Without env vars, version metadata falls back to dev defaults."""
-    monkeypatch.delenv("APP_VERSION", raising=False)
-    monkeypatch.delenv("BUILD_NUMBER", raising=False)
-    monkeypatch.delenv("COMMIT_SHA", raising=False)
-
-    mod = _load_main()
-
-    assert mod.APP_VERSION == "dev"
-    assert mod.BUILD_NUMBER == "0"
-    assert mod.COMMIT_SHA == "unknown"
-
-
-def test_version_metadata_from_env(monkeypatch):
-    """Env vars should propagate into version metadata."""
-    monkeypatch.setenv("APP_VERSION", "v1.2.3")
-    monkeypatch.setenv("BUILD_NUMBER", "42")
-    monkeypatch.setenv("COMMIT_SHA", "abc1234def5678")
-
-    mod = _load_main()
-
-    assert mod.APP_VERSION == "1.2.3"
-    assert mod.BUILD_NUMBER == "42"
-    assert mod.COMMIT_SHA == "abc1234"
-
-
-def test_app_name_from_repo_name(monkeypatch):
-    """REPO_NAME should be converted to title-case APP_NAME."""
-    monkeypatch.setenv("REPO_NAME", "my-cool-app")
-
-    mod = _load_main()
-
-    assert mod.APP_NAME == "My Cool App"
-
-
-ROOT = pathlib.Path(__file__).resolve().parent.parent
+    mod = importlib.import_module("app.main")
+    assert hasattr(mod, "ResilienceScanGUI")
+    assert hasattr(mod, "main")
 
 
 def test_nfpm_config_valid():

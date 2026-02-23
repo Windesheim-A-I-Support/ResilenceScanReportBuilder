@@ -7,10 +7,14 @@ maintainer: "Your Name <you@example.com>"   # TODO
 homepage: "https://github.com/${GITHUB_REPOSITORY}"
 
 contents:
-  - src: dist/${REPO_NAME}
+  # Install the full onedir bundle to /opt
+  - src: dist/${REPO_NAME}/
+    dst: /opt/${REPO_NAME}/
+
+  # Symlink main binary onto PATH
+  - type: symlink
+    src: /opt/${REPO_NAME}/${REPO_NAME}
     dst: /usr/bin/${REPO_NAME}
-    file_info:
-      mode: 0o755
 
   - src: packaging/${REPO_NAME}.desktop
     dst: /usr/share/applications/${REPO_NAME}.desktop

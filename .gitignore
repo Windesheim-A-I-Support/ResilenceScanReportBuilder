@@ -30,6 +30,12 @@ appimagetool-*.AppImage
 .DS_Store
 Thumbs.db
 
+# User data — respondent data must not be committed
+data/
+reports/
+outputs/
+config.yml
+
 # Secrets — never commit
 *.pem
 *.p12

@@ -1,0 +1,2155 @@
+---
+title: "Strategic Resilience and Financial Performance Profile for `r params$company`"
+subtitle: "An In-depth Analysis by the Supply Chain Finance Lectoraat, Hogeschool Windesheim"
+author:
+  - name: Ronald de Boer 
+    affiliations:
+      - name: Supply Chain Finance Lectoraat
+      - name: Hogeschool Windesheim
+        address: Campus 2, Zwolle
+bibliography: references.bib
+format: 
+  pdf:
+    documentclass: article
+    classoption: ["oneside", "open=any", "fontsize=11pt"]
+    link-citations: false
+    number-sections: false
+    toc: false
+    lof: false
+    lot: false
+    titlepage: "bg-image"
+    titlepage-bg-image: "img/corner-bg.png"
+    titlepage-logo: "img/logo.png" 
+    titlepage-header: "Resilience Scan | NEXT GEN Logistics Initiative"
+    titlepage-footer: |
+      Supply Chain Finance Lectoraat, Hogeschool Windesheim\
+      https://resiliencescan.org/ | https://www.windesheim.com/research/professorships/supply-chain-finance
+    coverpage-include-file:
+      - tex/copyright.tex
+    titlepage-include-file:
+      - tex/dedication.tex
+    titlepage-theme:
+      vrule-color: "004D40" 
+      vrule-width: "10pt"
+    coverpage: otter 
+    coverpage-bg-image: "img/otter-bar.jpeg"
+    coverpage-title: "resiliencescan" 
+    coverpage-author: ["Supply Chain Finance Lectoraat, Hogeschool Windesheim", "NEXT GEN Logistics"] 
+    coverpage-theme:
+      title-color: "white"
+      title-fontfamily: "QTDublinIrish.otf" 
+      title-fontsize: 70
+      author-style: "plain"
+      author-sep: "newline"
+      author-fontstyle: ["textbf", "textsc"]
+      author-fontsize: 24
+      author-color: "4CAF50" 
+      author-align: "right"
+      author-bottom: "1.5in"
+      footer-style: "none"
+      header-style: "none"
+      date-style: "none"
+    keep-tex: true
+    header-includes: |
+      \usepackage{geometry}
+      \usepackage{pdflscape}
+      \usepackage{afterpage}
+      \usepackage{graphicx}
+      \usepackage{float}
+      \usepackage{array}
+      \usepackage{booktabs}
+      \usepackage{longtable}
+      \usepackage{multirow}
+      \usepackage{wrapfig}
+      \usepackage{colortbl}
+      \usepackage{pdflscape}
+      \usepackage{tabu}
+      \usepackage{threeparttable}
+      \usepackage{threeparttablex}
+      \usepackage[normalem]{ulem}
+      \usepackage{makecell}
+      \usepackage{xcolor}
+      \usepackage{tikz}
+      \usetikzlibrary{positioning}
+execute:
+  echo: false
+  warning: false
+  message: false
+  cache: false
+  freeze: false
+params:
+  company: "Placeholder Company"
+  person: ""
+  diagnostic_mode: false
+  debug_mode: false
+  data_guide_mode: false
+---
+
+
+```{r package-setup, echo=FALSE}
+# ========================================================================
+# BULLETPROOF SETUP WITH GUARANTEED DEBUG OUTPUT
+# ========================================================================
+
+# DIRECT DEBUG CHECK (bulletproof)
+debug_on <- FALSE
+tryCatch({
+  debug_on <- exists("params") && !is.null(params$debug_mode) && params$debug_mode == TRUE
+}, error = function(e) {
+  debug_on <<- FALSE
+})
+
+# FORCE DEBUG OUTPUT FOR TESTING
+if (debug_on) {
+  cat("DEBUG MODE IS ACTIVE - YOU SHOULD SEE THIS MESSAGE\n")
+  cat("Testing params access...\n")
+  if (exists("params")) {
+    cat("params object exists\n")
+    cat("debug_mode =", params$debug_mode, "\n")
+    cat("diagnostic_mode =", params$diagnostic_mode, "\n")
+  } else {
+    cat("params object does NOT exist\n")
+  }
+}
+
+# Essential packages for dashboard
+essential_pkgs <- c(
+  "readr", "dplyr", "stringr", "tidyr", "ggplot2", "knitr"
+)
+
+# Advanced packages
+advanced_pkgs <- c(
+  "fmsb", "scales", "viridis", "patchwork", "RColorBrewer", 
+  "gridExtra", "png", "lubridate", "kableExtra"
+)
+
+# Package loading function
+load_pkg <- function(pkg) {
+  if (debug_on) cat("Loading", pkg, "...")
+  
+  success <- tryCatch({
+    library(pkg, character.only = TRUE, quietly = !debug_on, warn.conflicts = FALSE)
+    if (debug_on) cat(" SUCCESS\n")
+    TRUE
+  }, error = function(e) {
+    if (debug_on) cat(" FAILED\n")
+    FALSE
+  })
+  
+  return(success)
+}
+
+# Package installation function  
+install_pkg <- function(pkg) {
+  if (debug_on) cat("Installing", pkg, "...")
+  
+  success <- tryCatch({
+    install.packages(pkg, quiet = !debug_on, dependencies = TRUE)
+    if (debug_on) cat(" INSTALLED\n")
+    TRUE
+  }, error = function(e) {
+    if (debug_on) cat(" INSTALL FAILED:", e$message, "\n")
+    FALSE
+  })
+  
+  return(success)
+}
+
+# Try to load or install packages
+loaded_packages <- character(0)
+failed_packages <- character(0)
+
+if (debug_on) cat("\n=== PROCESSING ESSENTIAL PACKAGES ===\n")
+
+for (pkg in essential_pkgs) {
+  # Try loading first
+  if (load_pkg(pkg)) {
+    loaded_packages <- c(loaded_packages, pkg)
+  } else {
+    # Try installing then loading
+    if (install_pkg(pkg) && load_pkg(pkg)) {
+      loaded_packages <- c(loaded_packages, pkg)
+    } else {
+      failed_packages <- c(failed_packages, pkg)
+    }
+  }
+}
+
+if (debug_on) cat("\n=== PROCESSING ADVANCED PACKAGES ===\n")
+
+for (pkg in advanced_pkgs) {
+  # Try loading first
+  if (load_pkg(pkg)) {
+    loaded_packages <- c(loaded_packages, pkg)
+  } else {
+    # Try installing then loading
+    if (install_pkg(pkg) && load_pkg(pkg)) {
+      loaded_packages <- c(loaded_packages, pkg)
+    } else {
+      failed_packages <- c(failed_packages, pkg)
+      # Don't stop for advanced packages
+    }
+  }
+}
+
+# FINAL RESULTS
+if (debug_on) {
+  cat("\n=== SETUP COMPLETE ===\n")
+  cat("Successfully loaded:", length(loaded_packages), "packages\n")
+  cat("Loaded packages:", paste(loaded_packages, collapse = ", "), "\n")
+  
+  if (length(failed_packages) > 0) {
+    cat("Failed packages:", paste(failed_packages, collapse = ", "), "\n")
+  }
+  
+  cat("R version:", R.version.string, "\n")
+  cat("Graphics available:", capabilities("png"), "\n")
+}
+
+# Check critical packages
+missing_critical <- setdiff(essential_pkgs, loaded_packages)
+if (length(missing_critical) > 0) {
+  stop("CRITICAL FAILURE: Missing essential packages: ", paste(missing_critical, collapse = ", "))
+}
+
+# Store results globally
+assign("loaded_packages", loaded_packages, envir = .GlobalEnv)
+assign("setup_complete", TRUE, envir = .GlobalEnv)
+assign("debug_mode_active", debug_on, envir = .GlobalEnv)
+
+# Basic options
+options(scipen = 999, digits = 3)
+
+if (debug_on) {
+  cat("SETUP FINISHED - DEBUG MODE WAS ACTIVE\n")
+  cat("You should see all the messages above if debug is working\n")
+}
+```
+
+
+```{r demo-data-generation, eval=params$diagnostic_mode, echo=FALSE}
+# ========================================================================
+# SYNTHETIC RESILIENCE DATA GENERATION
+# ========================================================================
+# Generate realistic sample companies as if loaded from CSV
+
+cat("=== DEMO MODE: GENERATING SYNTHETIC RESILIENCE DATA ===\n")
+
+# Create realistic sample companies with diverse profiles
+create_sample_resilience_data <- function() {
+  
+  # Define 5 sample companies with different characteristics
+  companies <- data.frame(
+    company_name = c(
+      "GlobalLogistics Corp",
+      "Regional Express Ltd", 
+      "AgileStart Delivery",
+      "Traditional Freight Co",
+      "TechEnabled Supply"
+    ),
+    sector = c(
+      "International Logistics",
+      "Regional Transport", 
+      "Last-Mile Delivery",
+      "Freight & Warehousing",
+      "Supply Chain Technology"
+    ),
+    size_number_of_employees = c(
+      "10,000+",
+      "1,000-4,999", 
+      "50-249",
+      "5,000-9,999",
+      "250-999"
+    ),
+    stringsAsFactors = FALSE
+  )
+  
+  # Generate realistic resilience scores with different patterns
+  
+  # Company 1: High performer - excellent across all dimensions  
+  companies[1, c("up__r", "up__c", "up__f", "up__v", "up__a")] <- c(4.3, 4.5, 4.2, 4.4, 4.1)
+  companies[1, c("in__r", "in__c", "in__f", "in__v", "in__a")] <- c(4.4, 4.3, 4.5, 4.6, 4.2)
+  companies[1, c("do__r", "do__c", "do__f", "do__v", "do__a")] <- c(4.2, 4.4, 4.1, 4.5, 4.3)
+  companies[1, "overall_scres"] <- 4.33
+  
+  # Company 2: Good performer - solid but with some gaps
+  companies[2, c("up__r", "up__c", "up__f", "up__v", "up__a")] <- c(3.7, 3.2, 3.6, 3.8, 3.5)
+  companies[2, c("in__r", "in__c", "in__f", "in__v", "in__a")] <- c(3.8, 3.6, 3.4, 3.9, 3.7)
+  companies[2, c("do__r", "do__c", "do__f", "do__v", "do__a")] <- c(3.5, 3.7, 3.3, 3.6, 3.4)
+  companies[2, "overall_scres"] <- 3.59
+  
+  # Company 3: Agile startup - high flexibility/agility, lower redundancy
+  companies[3, c("up__r", "up__c", "up__f", "up__v", "up__a")] <- c(2.2, 3.6, 4.1, 3.1, 4.3)
+  companies[3, c("in__r", "in__c", "in__f", "in__v", "in__a")] <- c(2.4, 3.3, 4.2, 3.4, 4.4)
+  companies[3, c("do__r", "do__c", "do__f", "do__v", "do__a")] <- c(2.1, 3.9, 4.0, 3.6, 4.2)
+  companies[3, "overall_scres"] <- 3.35
+  
+  # Company 4: Traditional company - average performance, lower tech
+  companies[4, c("up__r", "up__c", "up__f", "up__v", "up__a")] <- c(3.1, 2.7, 2.8, 2.6, 2.5)
+  companies[4, c("in__r", "in__c", "in__f", "in__v", "in__a")] <- c(3.3, 2.9, 2.7, 2.8, 2.6)
+  companies[4, c("do__r", "do__c", "do__f", "do__v", "do__a")] <- c(3.0, 2.8, 2.5, 2.7, 2.4)
+  companies[4, "overall_scres"] <- 2.77
+  
+  # Company 5: Tech-enabled - high visibility/agility, moderate redundancy
+  companies[5, c("up__r", "up__c", "up__f", "up__v", "up__a")] <- c(3.1, 3.9, 3.7, 4.5, 4.1)
+  companies[5, c("in__r", "in__c", "in__f", "in__v", "in__a")] <- c(3.3, 4.0, 3.9, 4.6, 4.2)
+  companies[5, c("do__r", "do__c", "do__f", "do__v", "do__a")] <- c(3.0, 4.1, 3.8, 4.4, 4.0)
+  companies[5, "overall_scres"] <- 3.81
+  
+  return(companies)
+}
+
+# Generate the sample data
+tryCatch({
+  sample_companies <- create_sample_resilience_data()
+  cat("Successfully generated", nrow(sample_companies), "sample companies with complete resilience profiles\n")
+}, error = function(e) {
+  cat("ERROR: Failed to generate sample data:", e$message, "\n")
+  sample_companies <<- NULL
+})
+```
+
+```{r demo-radar-charts, eval=params$diagnostic_mode, echo=FALSE, fig.height=10, fig.width=14, results='asis'}
+# ========================================================================
+# DEMO: RADAR CHART VISUALIZATION TESTING
+# ========================================================================
+
+if (!is.null(sample_companies)) {
+  cat("## Demo: Radar Chart Capabilities\n\n")
+  
+  tryCatch({
+    if (!"fmsb" %in% loaded_packages) {
+      cat("fmsb package not available - skipping radar charts\n\n")
+    } else {
+      cat("Testing radar chart generation with fmsb package...\n")
+      
+      # Set up for multiple radar charts
+      par(mfrow = c(2, 3), mar = c(2, 2, 4, 2))
+      
+      dimension_labels <- c("Redundancy", "Collaboration", "Flexibility", "Visibility", "Agility")
+      colors <- c("#e74c3c", "#0277BD", "#FF8F00", "#2E7D32", "#8E44AD")
+      
+      # Function to create radar data for fmsb (upstream pillar focus)
+      create_radar_data_upstream <- function(company_row) {
+        radar_data <- data.frame(
+          Agility = c(5, 0, company_row$up__a),
+          Visibility = c(5, 0, company_row$up__v),
+          Flexibility = c(5, 0, company_row$up__f),
+          Collaboration = c(5, 0, company_row$up__c),
+          Redundancy = c(5, 0, company_row$up__r)
+        )
+        return(radar_data)
+      }
+      
+      # Create radar chart for each company
+      for (i in 1:min(5, nrow(sample_companies))) {
+        company <- sample_companies[i, ]
+        radar_data <- create_radar_data_upstream(company)
+        
+        # Create individual radar chart
+        fmsb::radarchart(radar_data,
+                         axistype = 2,
+                         pcol = colors[i],
+                         pfcol = scales::alpha(colors[i], 0.25),
+                         plwd = 2.5,
+                         cglcol = "grey70",
+                         cglty = 1,
+                         axislabcol = "grey40",
+                         caxislabels = seq(0, 5, 1),
+                         title = paste0(company$company_name, "\nUpstream Resilience"))
+      }
+      
+      # Add empty plot for layout
+      plot.new()
+      
+      # Reset plotting parameters
+      par(mfrow = c(1, 1), mar = c(5, 4, 4, 2))
+      
+      cat("Radar charts generated successfully for", min(5, nrow(sample_companies)), "companies\n\n")
+    }
+    
+  }, error = function(e) {
+    par(mfrow = c(1, 1), mar = c(5, 4, 4, 2))  # Reset on error
+    cat("ERROR: Radar chart generation failed:", e$message, "\n\n")
+  })
+}
+```
+
+```{r demo-pillar-comparison, eval=params$diagnostic_mode, echo=FALSE, fig.height=8, fig.width=12, results='asis'}
+# ========================================================================
+# DEMO: PILLAR COMPARISON CHARTS
+# ========================================================================
+
+if (!is.null(sample_companies)) {
+  cat("## Demo: Pillar Performance Comparison\n\n")
+  
+  tryCatch({
+    if (!"ggplot2" %in% loaded_packages) {
+      cat("ggplot2 package not available - skipping pillar comparison\n\n")
+    } else {
+      cat("Testing pillar comparison visualization...\n")
+      
+      # Calculate pillar averages
+      pillar_data <- sample_companies
+      pillar_data$upstream_avg <- rowMeans(pillar_data[, c("up__r", "up__c", "up__f", "up__v", "up__a")], na.rm = TRUE)
+      pillar_data$internal_avg <- rowMeans(pillar_data[, c("in__r", "in__c", "in__f", "in__v", "in__a")], na.rm = TRUE)
+      pillar_data$downstream_avg <- rowMeans(pillar_data[, c("do__r", "do__c", "do__f", "do__v", "do__a")], na.rm = TRUE)
+      
+      # Reshape for plotting
+      if ("tidyr" %in% loaded_packages) {
+        library(tidyr)
+        plot_data <- pillar_data %>%
+          select(company_name, upstream_avg, internal_avg, downstream_avg) %>%
+          pivot_longer(cols = c(upstream_avg, internal_avg, downstream_avg), 
+                       names_to = "pillar", values_to = "score") %>%
+          mutate(
+            pillar = case_when(
+              pillar == "upstream_avg" ~ "Upstream",
+              pillar == "internal_avg" ~ "Internal",
+              pillar == "downstream_avg" ~ "Downstream"
+            ),
+            pillar = factor(pillar, levels = c("Upstream", "Internal", "Downstream"))
+          )
+        
+        # Create comparison plot
+        p1 <- ggplot(plot_data, aes(x = pillar, y = score, fill = pillar)) +
+          geom_col(alpha = 0.8, width = 0.7) +
+          facet_wrap(~company_name, ncol = 3) +
+          scale_fill_manual(values = c("Upstream" = "#0277BD", "Internal" = "#FF8F00", "Downstream" = "#2E7D32")) +
+          scale_y_continuous(limits = c(0, 5), breaks = seq(0, 5, 1)) +
+          theme_minimal() +
+          theme(
+            axis.text.x = element_text(angle = 45, hjust = 1, size = 10),
+            legend.position = "bottom",
+            strip.text = element_text(size = 11),
+            panel.grid.minor = element_blank(),
+            plot.title = element_text(size = 14, face = "bold")
+          ) +
+          labs(
+            title = "Supply Chain Pillar Performance Comparison",
+            subtitle = "Average resilience scores across operational pillars",
+            x = "Operational Pillar",
+            y = "Average Resilience Score",
+            fill = "Pillar"
+          )
+        
+        print(p1)
+        cat("Pillar comparison chart generated successfully\n\n")
+        
+      } else {
+        cat("tidyr package not available - using base R approach\n")
+        # Fallback to simpler visualization without tidyr
+        
+        barplot(as.matrix(pillar_data[, c("upstream_avg", "internal_avg", "downstream_avg")]),
+                beside = TRUE,
+                main = "Pillar Performance Comparison (Fallback)",
+                names.arg = c("Upstream", "Internal", "Downstream"),
+                col = rainbow(nrow(pillar_data)),
+                legend.text = pillar_data$company_name)
+        
+        cat("Fallback pillar comparison generated\n\n")
+      }
+    }
+    
+  }, error = function(e) {
+    cat("ERROR: Pillar comparison failed:", e$message, "\n\n")
+  })
+}
+```
+
+```{r demo-dimension-heatmap, eval=params$diagnostic_mode, echo=FALSE, fig.height=8, fig.width=12, results='asis'}
+# ========================================================================
+# DEMO: DIMENSION HEATMAP VISUALIZATION
+# ========================================================================
+
+if (!is.null(sample_companies)) {
+  cat("## Demo: Resilience Dimension Heatmap\n\n")
+  
+  tryCatch({
+    if (!"ggplot2" %in% loaded_packages || !"tidyr" %in% loaded_packages) {
+      cat("Required packages (ggplot2, tidyr) not available - skipping heatmap\n\n")
+    } else {
+      cat("Testing dimension heatmap visualization...\n")
+      
+      # Prepare heatmap data
+      dimension_cols <- c("up__r", "up__c", "up__f", "up__v", "up__a",
+                         "in__r", "in__c", "in__f", "in__v", "in__a",
+                         "do__r", "do__c", "do__f", "do__v", "do__a")
+      
+      heatmap_data <- sample_companies %>%
+        select(company_name, all_of(dimension_cols)) %>%
+        pivot_longer(cols = -company_name, names_to = "dimension", values_to = "score") %>%
+        mutate(
+          pillar = case_when(
+            grepl("^up__", dimension) ~ "Upstream",
+            grepl("^in__", dimension) ~ "Internal", 
+            grepl("^do__", dimension) ~ "Downstream"
+          ),
+          dim_type = case_when(
+            grepl("__r$", dimension) ~ "Redundancy",
+            grepl("__c$", dimension) ~ "Collaboration",
+            grepl("__f$", dimension) ~ "Flexibility",
+            grepl("__v$", dimension) ~ "Visibility",
+            grepl("__a$", dimension) ~ "Agility"
+          )
+        )
+      
+      # Create heatmap
+      p2 <- ggplot(heatmap_data, aes(x = dim_type, y = company_name, fill = score)) +
+        geom_tile(color = "white", size = 0.8) +
+        facet_wrap(~pillar, ncol = 3) +
+        scale_fill_gradient2(low = "#e74c3c", mid = "#f39c12", high = "#27ae60",
+                            midpoint = 2.5, limits = c(0, 5),
+                            name = "Resilience\nScore") +
+        theme_minimal() +
+        theme(
+          axis.text.x = element_text(angle = 45, hjust = 1, size = 10),
+          axis.text.y = element_text(size = 10),
+          strip.text = element_text(size = 12, face = "bold"),
+          panel.grid = element_blank(),
+          plot.title = element_text(size = 14, face = "bold")
+        ) +
+        labs(
+          title = "Resilience Dimension Heatmap Analysis",
+          subtitle = "Performance across all 15 resilience dimensions",
+          x = "Resilience Dimension",
+          y = "Company"
+        )
+      
+      print(p2)
+      cat("Dimension heatmap generated successfully\n\n")
+    }
+    
+  }, error = function(e) {
+    cat("ERROR: Heatmap generation failed:", e$message, "\n\n")
+  })
+}
+```
+
+```{r demo-overall-ranking, eval=params$diagnostic_mode, echo=FALSE, fig.height=6, fig.width=10, results='asis'}
+# ========================================================================
+# DEMO: OVERALL RANKING VISUALIZATION
+# ========================================================================
+
+if (!is.null(sample_companies)) {
+  cat("## Demo: Overall Resilience Ranking\n\n")
+  
+  tryCatch({
+    if (!"ggplot2" %in% loaded_packages) {
+      cat("ggplot2 package not available - skipping ranking chart\n\n")
+    } else {
+      cat("Testing overall ranking visualization...\n")
+      
+      # Create ranking data
+      ranking_data <- sample_companies %>%
+        select(company_name, sector, overall_scres) %>%
+        arrange(desc(overall_scres)) %>%
+        mutate(
+          rank = row_number(),
+          performance_level = case_when(
+            overall_scres >= 4.0 ~ "Excellent",
+            overall_scres >= 3.5 ~ "Good",
+            overall_scres >= 3.0 ~ "Average", 
+            overall_scres >= 2.5 ~ "Below Average",
+            TRUE ~ "Poor"
+          ),
+          performance_level = factor(performance_level, 
+                                   levels = c("Poor", "Below Average", "Average", "Good", "Excellent"))
+        )
+      
+      # Create ranking plot
+      p3 <- ggplot(ranking_data, aes(x = reorder(company_name, overall_scres), y = overall_scres, fill = performance_level)) +
+        geom_col(alpha = 0.85, width = 0.7) +
+        geom_text(aes(label = round(overall_scres, 2)), hjust = -0.1, size = 4, fontface = "bold") +
+        scale_fill_manual(values = c("Poor" = "#e74c3c", "Below Average" = "#e67e22",
+                                    "Average" = "#f39c12", "Good" = "#2ecc71", "Excellent" = "#27ae60")) +
+        scale_y_continuous(limits = c(0, 5), breaks = seq(0, 5, 1)) +
+        coord_flip() +
+        theme_minimal() +
+        theme(
+          legend.position = "bottom",
+          panel.grid.minor = element_blank(),
+          axis.text.y = element_text(size = 11),
+          plot.title = element_text(size = 14, face = "bold")
+        ) +
+        labs(
+          title = "Overall Supply Chain Resilience Score (SCRES) Ranking",
+          subtitle = "Companies ranked by comprehensive resilience performance",
+          x = "Company",
+          y = "Overall Resilience Score (SCRES)",
+          fill = "Performance Level"
+        )
+      
+      print(p3)
+      cat("Overall ranking chart generated successfully\n\n")
+    }
+    
+  }, error = function(e) {
+    cat("ERROR: Ranking visualization failed:", e$message, "\n\n")
+  })
+}
+```
+
+```{r demo-summary-table, eval=params$diagnostic_mode, echo=FALSE, results='asis'}
+# ========================================================================
+# DEMO: DATA SUMMARY TABLE
+# ========================================================================
+
+if (!is.null(sample_companies)) {
+  cat("## Demo: Sample Data Summary\n\n")
+  
+  tryCatch({
+    if (!"knitr" %in% loaded_packages) {
+      cat("knitr package not available - showing basic summary\n")
+      print(sample_companies[, c("company_name", "sector", "overall_scres")])
+    } else {
+      cat("Testing table generation capabilities...\n")
+      
+      # Create summary table
+      summary_table <- sample_companies %>%
+        select(company_name, sector, size_number_of_employees, overall_scres) %>%
+        mutate(
+          overall_scres = round(overall_scres, 2),
+          performance_level = case_when(
+            overall_scres >= 4.0 ~ "Excellent",
+            overall_scres >= 3.5 ~ "Good",
+            overall_scres >= 3.0 ~ "Average",
+            overall_scres >= 2.5 ~ "Below Average", 
+            TRUE ~ "Poor"
+          )
+        ) %>%
+        arrange(desc(overall_scres))
+      
+      print(knitr::kable(summary_table,
+                        col.names = c("Company", "Sector", "Size", "SCRES", "Performance Level"),
+                        format = "markdown",
+                        align = c("l", "l", "l", "c", "c")))
+      
+      cat("\n**Demo Visualization Summary:**\n")
+      cat("- Successfully tested", length(loaded_packages), "loaded packages\n")  
+      cat("- Generated", nrow(sample_companies), "sample companies with realistic resilience profiles\n")
+      cat("- Demonstrated radar charts, pillar comparisons, heatmaps, and ranking visualizations\n")
+      cat("- All visualization components working with robust error handling\n\n")
+      
+      cat("**System Status:** Dashboard visualization capabilities fully operational\n\n")
+    }
+    
+  }, error = function(e) {
+    cat("ERROR: Summary table generation failed:", e$message, "\n\n")
+  })
+}
+```
+
+```{r data-discovery-and-loading, eval=params$data_guide_mode, echo=FALSE, results='asis'}
+# ========================================================================
+# DATA DISCOVERY & FILE ANALYSIS
+# ========================================================================
+
+cat("# Validation Debug Summary\n\n")
+cat("*This detailed analysis is shown because data guide mode is enabled.*\n\n")
+
+# Initialize validation tracking
+validation_results <- list(
+  rows_checked = 0,
+  errors = 0,
+  warnings = 0,
+  info_messages = 0,
+  detailed_messages = list()
+)
+
+# Add validation message function
+add_validation_message <- function(row_idx = NA, field = "", rule = "", value = "", severity = "info", message = "") {
+  validation_results$detailed_messages <<- append(validation_results$detailed_messages, list(list(
+    row = ifelse(is.na(row_idx), "N/A", row_idx),
+    field = field,
+    rule = rule, 
+    value = as.character(value),
+    severity = severity,
+    message = message
+  )))
+  
+  if (severity == "error") validation_results$errors <<- validation_results$errors + 1
+  else if (severity == "warning") validation_results$warnings <<- validation_results$warnings + 1
+  else validation_results$info_messages <<- validation_results$info_messages + 1
+}
+
+cat("## Data Discovery & File Analysis\n\n")
+
+# Define data file path
+data_file_path <- "data/cleaned_master.csv"
+
+# File existence and accessibility check
+tryCatch({
+  cat("**File System Analysis:**\n")
+  
+  # Check data directory
+  if (!dir.exists("data")) {
+    add_validation_message(field = "filesystem", rule = "directory_exists", value = "data/", 
+                          severity = "error", message = "Data directory does not exist")
+    cat("- Data directory: **NOT FOUND** ❌\n")
+  } else {
+    cat("- Data directory: Found ✅\n")
+    
+    # List available files in data directory
+    available_files <- list.files("data", pattern = "\\.(csv|xlsx|xls|txt)$", ignore.case = TRUE)
+    cat("- Available data files:", length(available_files), "\n")
+    if (length(available_files) > 0) {
+      cat("  - Files:", paste(head(available_files, 10), collapse = ", "), 
+          if(length(available_files) > 10) "..." else "", "\n")
+    }
+  }
+  
+  # Target file analysis
+  if (file.exists(data_file_path)) {
+    file_info <- file.info(data_file_path)
+    cat("- Target file: **FOUND** ✅\n")
+    cat("  - Path:", data_file_path, "\n")
+    cat("  - Size:", round(file_info$size / 1024, 1), "KB\n")
+    cat("  - Modified:", as.character(file_info$mtime), "\n")
+    
+    # Check file permissions
+    if (file.access(data_file_path, 4) == 0) {
+      cat("  - Readable: Yes ✅\n")
+    } else {
+      add_validation_message(field = "file_access", rule = "readable", value = data_file_path,
+                            severity = "error", message = "File exists but not readable")
+      cat("  - Readable: **NO** ❌\n")
+    }
+    
+  } else {
+    add_validation_message(field = "file_existence", rule = "file_exists", value = data_file_path,
+                          severity = "error", message = "Target CSV file not found")
+    cat("- Target file: **NOT FOUND** ❌\n")
+  }
+  
+}, error = function(e) {
+  add_validation_message(field = "filesystem", rule = "access_check", value = "",
+                        severity = "error", message = paste("File system error:", e$message))
+  cat("- File system error:", e$message, "\n")
+})
+
+cat("\n")
+```
+
+```{r data-loading-and-preview, eval=params$data_guide_mode, echo=FALSE, results='asis'}
+# ========================================================================
+# ROBUST DATA LOADING WITH MULTIPLE STRATEGIES
+# ========================================================================
+
+cat("## Data Loading & Structure Analysis\n\n")
+
+df_raw <- NULL
+loading_method <- "none"
+
+# Multiple loading strategies with fallbacks
+tryCatch({
+  cat("**Loading Strategy Testing:**\n")
+  
+  if (file.exists(data_file_path)) {
+    
+    # Strategy 1: readr with UTF-8
+    if ("readr" %in% loaded_packages && is.null(df_raw)) {
+      tryCatch({
+        df_raw <- readr::read_csv(data_file_path, 
+                                 col_types = readr::cols(.default = "c"),
+                                 show_col_types = FALSE,
+                                 locale = readr::locale(encoding = "UTF-8"))
+        loading_method <- "readr_utf8"
+        cat("- Strategy 1 (readr UTF-8): **SUCCESS** ✅\n")
+      }, error = function(e) {
+        cat("- Strategy 1 (readr UTF-8): Failed -", e$message, "\n")
+      })
+    }
+    
+    # Strategy 2: readr with auto-detect encoding
+    if ("readr" %in% loaded_packages && is.null(df_raw)) {
+      tryCatch({
+        df_raw <- readr::read_csv(data_file_path,
+                                 col_types = readr::cols(.default = "c"),
+                                 show_col_types = FALSE)
+        loading_method <- "readr_auto"
+        cat("- Strategy 2 (readr auto): **SUCCESS** ✅\n")
+      }, error = function(e) {
+        cat("- Strategy 2 (readr auto): Failed -", e$message, "\n")
+      })
+    }
+    
+    # Strategy 3: Base R with UTF-8
+    if (is.null(df_raw)) {
+      tryCatch({
+        df_raw <- read.csv(data_file_path, 
+                          stringsAsFactors = FALSE,
+                          encoding = "UTF-8",
+                          check.names = FALSE)
+        loading_method <- "base_utf8"
+        cat("- Strategy 3 (base R UTF-8): **SUCCESS** ✅\n")
+      }, error = function(e) {
+        cat("- Strategy 3 (base R UTF-8): Failed -", e$message, "\n")
+      })
+    }
+    
+    # Strategy 4: Base R minimal
+    if (is.null(df_raw)) {
+      tryCatch({
+        df_raw <- read.csv(data_file_path, stringsAsFactors = FALSE)
+        loading_method <- "base_minimal"
+        cat("- Strategy 4 (base R minimal): **SUCCESS** ✅\n")
+      }, error = function(e) {
+        cat("- Strategy 4 (base R minimal): Failed -", e$message, "\n")
+      })
+    }
+    
+  } else {
+    cat("- **File not found - cannot attempt loading**\n")
+  }
+  
+}, error = function(e) {
+  add_validation_message(field = "data_loading", rule = "load_csv", value = "",
+                        severity = "error", message = paste("All loading strategies failed:", e$message))
+})
+
+# Data loading results
+if (!is.null(df_raw)) {
+  validation_results$rows_checked <- nrow(df_raw)
+  
+  cat("\n**Data Loading Results:**\n")
+  cat("- **Loading method used:** ", loading_method, "\n")
+  cat("- **Rows loaded:** ", nrow(df_raw), "\n")
+  cat("- **Columns loaded:** ", ncol(df_raw), "\n")
+  
+  # Basic data validation
+  if (nrow(df_raw) == 0) {
+    add_validation_message(field = "data_content", rule = "min_rows > 0", value = "0",
+                          severity = "error", message = "Dataset contains no rows")
+    cat("- **Data content:** Empty dataset ❌\n")
+  } else if (nrow(df_raw) < 5) {
+    add_validation_message(field = "data_content", rule = "min_rows >= 5", value = nrow(df_raw),
+                          severity = "warning", message = "Very small dataset may limit analysis")
+    cat("- **Data content:** Very small dataset (", nrow(df_raw), " rows) ⚠️\n")
+  } else {
+    cat("- **Data content:** Adequate size ✅\n")
+  }
+  
+  if (ncol(df_raw) == 0) {
+    add_validation_message(field = "data_structure", rule = "min_cols > 0", value = "0",
+                          severity = "error", message = "Dataset contains no columns")
+    cat("- **Data structure:** No columns ❌\n")
+  } else {
+    cat("- **Data structure:** ", ncol(df_raw), " columns available ✅\n")
+  }
+  
+} else {
+  add_validation_message(field = "data_loading", rule = "load_success", value = "failed",
+                        severity = "error", message = "All loading strategies failed - no data available")
+  cat("\n**⚠️ Data loading failed - no data available for analysis**\n")
+}
+
+cat("\n")
+```
+
+```{r data-preview-and-structure, eval=params$data_guide_mode, echo=FALSE, results='asis'}
+# ========================================================================
+# DATA PREVIEW & STRUCTURE ANALYSIS
+# ========================================================================
+
+if (!is.null(df_raw) && nrow(df_raw) > 0) {
+  cat("## Raw Data Preview & Structure\n\n")
+  
+  tryCatch({
+    # Clean column names for analysis
+    original_colnames <- colnames(df_raw)
+    clean_colnames <- tolower(trimws(original_colnames))
+    
+    # Show raw data preview
+    cat("**First 5 rows of raw data:**\n\n")
+    
+    if ("knitr" %in% loaded_packages) {
+      preview_data <- head(df_raw, 5)
+      # Truncate long values for display
+      preview_data[] <- lapply(preview_data, function(x) {
+        ifelse(nchar(as.character(x)) > 30, 
+               paste0(substr(as.character(x), 1, 27), "..."), 
+               as.character(x))
+      })
+      print(knitr::kable(preview_data, format = "markdown"))
+    } else {
+      print(head(df_raw, 5))
+    }
+    
+    cat("\n**Column Structure Analysis:**\n")
+    cat("- **Total columns:** ", ncol(df_raw), "\n")
+    cat("- **Column name consistency:** ", 
+        ifelse(any(duplicated(clean_colnames)), "Duplicates found ❌", "No duplicates ✅"), "\n")
+    
+    # Check for naming issues
+    problematic_names <- original_colnames[grepl("[^a-zA-Z0-9_.]", original_colnames)]
+    if (length(problematic_names) > 0) {
+      add_validation_message(field = "column_names", rule = "valid_characters", 
+                            value = paste(problematic_names, collapse = ", "),
+                            severity = "warning", message = "Column names contain special characters")
+      cat("- **Column name issues:** Special characters found in", length(problematic_names), "columns ⚠️\n")
+    } else {
+      cat("- **Column name format:** Clean format ✅\n")
+    }
+    
+  }, error = function(e) {
+    add_validation_message(field = "data_preview", rule = "preview_generation", value = "",
+                          severity = "error", message = paste("Failed to generate data preview:", e$message))
+    cat("Error generating data preview:", e$message, "\n")
+  })
+  
+  cat("\n")
+}
+```
+
+```{r intelligent-data-categorization, eval=params$data_guide_mode, echo=FALSE, results='asis'}
+# ========================================================================
+# INTELLIGENT DATA CATEGORIZATION & PATTERN RECOGNITION
+# ========================================================================
+
+if (!is.null(df_raw) && nrow(df_raw) > 0) {
+  cat("## Intelligent Data Categorization\n\n")
+  
+  tryCatch({
+    column_analysis <- data.frame(
+      column_name = colnames(df_raw),
+      data_type = sapply(df_raw, function(x) class(x)[1]),
+      non_missing_count = sapply(df_raw, function(x) sum(!is.na(x) & x != "")),
+      unique_values = sapply(df_raw, function(x) length(unique(x[!is.na(x) & x != ""]))),
+      sample_values = sapply(df_raw, function(x) {
+        vals <- unique(x[!is.na(x) & x != ""])
+        paste(head(vals, 3), collapse = ", ")
+      }),
+      stringsAsFactors = FALSE
+    )
+    
+    column_analysis$completeness_rate <- round(column_analysis$non_missing_count / nrow(df_raw) * 100, 1)
+    
+    # Intelligent categorization
+    column_analysis$inferred_category <- sapply(1:nrow(column_analysis), function(i) {
+      col_name <- tolower(column_analysis$column_name[i])
+      unique_vals <- column_analysis$unique_values[i]
+      completeness <- column_analysis$completeness_rate[i]
+      sample_vals <- column_analysis$sample_values[i]
+      
+      # Pattern-based categorization
+      if (grepl("company|name|organization|firm", col_name)) {
+        "Company Identifier"
+      } else if (grepl("id|code|ref|key", col_name)) {
+        "Reference/ID"
+      } else if (grepl("sector|industry|type|category", col_name)) {
+        "Business Classification"
+      } else if (grepl("size|employee|revenue|turnover", col_name)) {
+        "Company Demographics"
+      } else if (grepl("score|rating|scres|up__|in__|do__", col_name)) {
+        "Performance Score"
+      } else if (grepl("date|time|timestamp|survey", col_name)) {
+        "Temporal/Survey Meta"
+      } else if (grepl("region|country|location|address", col_name)) {
+        "Geographic"
+      } else if (unique_vals <= 10 && completeness > 50) {
+        "Categorical (Low Cardinality)"
+      } else if (unique_vals > nrow(df_raw) * 0.8) {
+        "High Uniqueness (Likely Identifier)"
+      } else if (grepl("^[0-9.,-]+$", sample_vals)) {
+        "Numerical Data"
+      } else {
+        "General Text/Mixed"
+      }
+    })
+    
+    # Data quality assessment for each column
+    column_analysis$quality_flag <- sapply(1:nrow(column_analysis), function(i) {
+      completeness <- column_analysis$completeness_rate[i]
+      unique_vals <- column_analysis$unique_values[i]
+      
+      flags <- character(0)
+      
+      if (completeness < 50) flags <- c(flags, "High Missing")
+      if (completeness < 20) flags <- c(flags, "Critical Missing")
+      if (unique_vals == 1) flags <- c(flags, "No Variation")
+      if (unique_vals == nrow(df_raw) && completeness > 90) flags <- c(flags, "All Unique")
+      
+      if (length(flags) == 0) "OK" else paste(flags, collapse = ", ")
+    })
+    
+    cat("**Column Categorization Results:**\n\n")
+    
+    if ("knitr" %in% loaded_packages) {
+      display_analysis <- column_analysis[, c("column_name", "inferred_category", "completeness_rate", "unique_values", "quality_flag")]
+      colnames(display_analysis) <- c("Column", "Inferred Category", "Completeness %", "Unique Values", "Quality Flags")
+      print(knitr::kable(display_analysis, format = "markdown", align = c("l", "l", "r", "r", "l")))
+    } else {
+      print(column_analysis)
+    }
+    
+    # Summary by category
+    cat("\n**Data Categories Summary:**\n")
+    category_counts <- table(column_analysis$inferred_category)
+    for (cat_name in names(category_counts)) {
+      cat("- **", cat_name, ":** ", category_counts[cat_name], " columns\n", sep = "")
+    }
+    
+    # Quality issues summary
+    problem_columns <- column_analysis[column_analysis$quality_flag != "OK", ]
+    if (nrow(problem_columns) > 0) {
+      cat("\n**Data Quality Issues Detected:**\n")
+      for (i in 1:nrow(problem_columns)) {
+        add_validation_message(field = problem_columns$column_name[i], 
+                              rule = "data_quality_check", 
+                              value = problem_columns$quality_flag[i],
+                              severity = if(grepl("Critical", problem_columns$quality_flag[i])) "error" else "warning",
+                              message = paste("Column quality issue:", problem_columns$quality_flag[i]))
+        cat("- **", problem_columns$column_name[i], ":** ", problem_columns$quality_flag[i], "\n", sep = "")
+      }
+    } else {
+      cat("\n**Data Quality:** No major issues detected ✅\n")
+    }
+    
+  }, error = function(e) {
+    add_validation_message(field = "categorization", rule = "column_analysis", value = "",
+                          severity = "error", message = paste("Column categorization failed:", e$message))
+    cat("Error in data categorization:", e$message, "\n")
+  })
+  
+  cat("\n")
+}
+```
+
+```{r company-extraction-and-matching, eval=params$data_guide_mode, echo=FALSE, results='asis'}
+# ========================================================================
+# COMPANY EXTRACTION & INTELLIGENT MATCHING
+# ========================================================================
+
+if (!is.null(df_raw) && nrow(df_raw) > 0) {
+  cat("## Company Extraction & Matching Analysis\n\n")
+  
+  target_company <- params$company
+  company_data <- NULL
+  
+  tryCatch({
+    cat("**Target Company:** ", target_company, "\n\n")
+    
+    # Identify potential company name columns
+    colnames_lower <- tolower(colnames(df_raw))
+    company_col_candidates <- colnames(df_raw)[grepl("company|name|organization|firm", colnames_lower)]
+    
+    cat("**Company Name Column Detection:**\n")
+    if (length(company_col_candidates) == 0) {
+      add_validation_message(field = "company_column", rule = "company_col_exists", value = "none",
+                            severity = "error", message = "No company name columns found")
+      cat("- **Status:** No company name columns detected ❌\n")
+      cat("- **Available columns:** ", paste(head(colnames(df_raw), 10), collapse = ", "), 
+          if(ncol(df_raw) > 10) "..." else "", "\n")
+    } else {
+      cat("- **Candidates found:** ", length(company_col_candidates), " columns\n")
+      cat("- **Columns:** ", paste(company_col_candidates, collapse = ", "), "\n")
+      
+      # Use the first/best candidate
+      company_col <- company_col_candidates[1]
+      cat("- **Selected column:** ", company_col, " ✅\n")
+      
+      # Analyze company data in this column
+      company_names <- df_raw[[company_col]]
+      unique_companies <- unique(company_names[!is.na(company_names) & company_names != ""])
+      
+      cat("- **Total companies in dataset:** ", length(unique_companies), "\n")
+      
+      # Company matching attempts
+      cat("\n**Company Matching Process:**\n")
+      
+      # Exact match
+      exact_matches <- which(tolower(trimws(company_names)) == tolower(trimws(target_company)))
+      if (length(exact_matches) > 0) {
+        cat("- **Exact match:** Found ", length(exact_matches), " match(es) ✅\n")
+        company_data <- df_raw[exact_matches[1], , drop = FALSE]
+        match_type <- "exact"
+      } else {
+        cat("- **Exact match:** Not found\n")
+        
+        # Partial match
+        partial_matches <- which(grepl(tolower(trimws(target_company)), tolower(trimws(company_names)), fixed = TRUE))
+        if (length(partial_matches) > 0) {
+          cat("- **Partial match:** Found ", length(partial_matches), " match(es) ⚠️\n")
+          cat("  - Matches: ", paste(head(company_names[partial_matches], 5), collapse = ", "), "\n")
+          company_data <- df_raw[partial_matches[1], , drop = FALSE]
+          match_type <- "partial"
+          
+          add_validation_message(field = "company_matching", rule = "exact_match", value = target_company,
+                                severity = "warning", message = "Using partial match instead of exact match")
+        } else {
+          cat("- **Partial match:** Not found\n")
+          match_type <- "none"
+          
+          add_validation_message(field = "company_matching", rule = "company_found", value = target_company,
+                                severity = "error", message = "Target company not found in dataset")
+        }
+      }
+      
+      # Show available companies if no match
+      if (match_type == "none") {
+        cat("\n**Available Companies (sample):**\n")
+        sample_companies <- head(unique_companies[order(unique_companies)], 10)
+        for (i in seq_along(sample_companies)) {
+          cat(sprintf("  %2d. %s\n", i, sample_companies[i]))
+        }
+        if (length(unique_companies) > 10) {
+          cat("  ... and ", length(unique_companies) - 10, " more companies\n")
+        }
+      }
+    }
+    
+  }, error = function(e) {
+    add_validation_message(field = "company_extraction", rule = "extraction_process", value = "",
+                          severity = "error", message = paste("Company extraction failed:", e$message))
+    cat("Error in company extraction:", e$message, "\n")
+  })
+  
+  cat("\n")
+}
+```
+
+```{r extracted-company-analysis, eval=params$data_guide_mode, echo=FALSE, results='asis'}
+# ========================================================================
+# EXTRACTED COMPANY DATA ANALYSIS
+# ========================================================================
+
+if (!is.null(company_data) && nrow(company_data) > 0) {
+  cat("## Extracted Company Data Analysis\n\n")
+  
+  tryCatch({
+    cat("**Successfully extracted company data:**\n")
+    cat("- **Company found:** ", company_data[[company_col]][1], " ✅\n")
+    cat("- **Match type:** ", match_type, "\n")
+    cat("- **Data completeness analysis:**\n")
+    
+    # Analyze data completeness for this company
+    company_completeness <- data.frame(
+      field = colnames(company_data),
+      value = as.character(unlist(company_data[1, ])),
+      has_data = !is.na(unlist(company_data[1, ])) & unlist(company_data[1, ]) != "",
+      stringsAsFactors = FALSE
+    )
+    
+    company_completeness$category <- sapply(company_completeness$field, function(x) {
+      col_name <- tolower(x)
+      if (grepl("company|name", col_name)) "Identification"
+      else if (grepl("sector|industry", col_name)) "Business Info"
+      else if (grepl("size|employee", col_name)) "Company Size"
+      else if (grepl("score|rating|up__|in__|do__", col_name)) "Performance Scores"
+      else if (grepl("date|time", col_name)) "Survey Meta"
+      else "Other"
+    })
+    
+    # Score-specific analysis
+    score_fields <- company_completeness[company_completeness$category == "Performance Scores", ]
+    if (nrow(score_fields) > 0) {
+      cat("\n**Performance Score Analysis:**\n")
+      cat("- **Total score fields:** ", nrow(score_fields), "\n")
+      cat("- **Fields with data:** ", sum(score_fields$has_data), "\n")
+      cat("- **Completeness rate:** ", round(sum(score_fields$has_data) / nrow(score_fields) * 100, 1), "%\n")
+      
+      # Test score conversion
+      numeric_scores <- 0
+      conversion_issues <- character(0)
+      
+      for (i in 1:nrow(score_fields)) {
+        field_val <- score_fields$value[i]
+        if (score_fields$has_data[i]) {
+          # Try converting to numeric
+          num_val <- suppressWarnings(as.numeric(gsub(",", ".", field_val)))
+          if (!is.na(num_val)) {
+            numeric_scores <- numeric_scores + 1
+            # Check if reasonable score range
+            if (num_val < 0 || num_val > 10) {
+              add_validation_message(row = 1, field = score_fields$field[i], 
+                                   rule = "score_range_0_10", value = num_val,
+                                   severity = "warning", 
+                                   message = "Score outside typical 0-10 range")
+              conversion_issues <- c(conversion_issues, paste(score_fields$field[i], "=", num_val))
+            }
+          } else {
+            add_validation_message(row = 1, field = score_fields$field[i], 
+                                 rule = "numeric_conversion", value = field_val,
+                                 severity = "error", 
+                                 message = "Cannot convert score to numeric")
+            conversion_issues <- c(conversion_issues, paste(score_fields$field[i], "non-numeric"))
+          }
+        }
+      }
+      
+      cat("- **Convertible to numeric:** ", numeric_scores, "/", sum(score_fields$has_data), "\n")
+      if (length(conversion_issues) > 0) {
+        cat("- **Conversion issues:** ", paste(head(conversion_issues, 3), collapse = ", "), 
+            if(length(conversion_issues) > 3) "..." else "", "\n")
+      }
+    }
+    
+    # Show sample of company data
+    if ("knitr" %in% loaded_packages) {
+      cat("\n**Sample Company Data:**\n\n")
+      sample_data <- company_completeness[company_completeness$has_data, c("field", "value", "category")]
+      sample_data <- head(sample_data, 15)  # Show first 15 fields with data
+      colnames(sample_data) <- c("Field", "Value", "Category")
+      print(knitr::kable(sample_data, format = "markdown"))
+      
+      if (nrow(company_completeness[company_completeness$has_data, ]) > 15) {
+        cat("\n*... and ", nrow(company_completeness[company_completeness$has_data, ]) - 15, " more fields with data*\n")
+      }
+    }
+    
+  }, error = function(e) {
+    add_validation_message(field = "company_analysis", rule = "data_analysis", value = "",
+                          severity = "error", message = paste("Company data analysis failed:", e$message))
+    cat("Error analyzing company data:", e$message, "\n")
+  })
+  
+  cat("\n")
+} else if (!is.null(df_raw) && nrow(df_raw) > 0) {
+  cat("## Company Data Extraction\n\n")
+  cat("**⚠️ No company data extracted - see matching issues above**\n\n")
+}
+```
+
+```{r final-validation-summary, eval=params$data_guide_mode, echo=FALSE, results='asis'}
+# ========================================================================
+# FINAL VALIDATION SUMMARY (USER STORY FORMAT)
+# ========================================================================
+
+cat("## Final Validation Summary\n\n")
+
+tryCatch({
+  cat("**Validation Statistics:**\n")
+  cat("- **Rows checked:** ", validation_results$rows_checked, "\n")
+  cat("- **Errors:** ", validation_results$errors, "\n") 
+  cat("- **Warnings:** ", validation_results$warnings, "\n")
+  cat("- **Info messages:** ", validation_results$info_messages, "\n")
+  cat("- **Total issues:** ", length(validation_results$detailed_messages), "\n")
+  
+  # Show detailed validation messages if any exist
+  if (length(validation_results$detailed_messages) > 0) {
+    cat("\n**Detailed Validation Messages:**\n\n")
+    
+    if ("knitr" %in% loaded_packages) {
+      # Create detailed messages table
+      messages_df <- do.call(rbind, lapply(validation_results$detailed_messages, function(x) {
+        data.frame(
+          Row = x$row,
+          Field = x$field,
+          Rule = x$rule,
+          Value = substr(x$value, 1, 30), # Truncate long values
+          Severity = x$severity,
+          Message = substr(x$message, 1, 50), # Truncate long messages
+          stringsAsFactors = FALSE
+        )
+      }))
+      
+      # Truncate table to max 50 rows
+      if (nrow(messages_df) > 50) {
+        display_messages <- head(messages_df, 50)
+        cat("*Showing first 50 of ", nrow(messages_df), " validation messages*\n\n")
+      } else {
+        display_messages <- messages_df
+      }
+      
+      print(knitr::kable(display_messages, format = "markdown", align = c("r", "l", "l", "l", "c", "l")))
+      
+    } else {
+      # Fallback text format
+      for (i in seq_along(validation_results$detailed_messages)) {
+        msg <- validation_results$detailed_messages[[i]]
+        cat(sprintf("- Row %s | %s | %s | Value: %s | %s\n", 
+                   msg$row, msg$field, msg$rule, substr(msg$value, 1, 20), msg$severity))
+        if (i >= 20) {
+          cat("... and ", length(validation_results$detailed_messages) - 20, " more messages\n")
+          break
+        }
+      }
+    }
+    
+  } else {
+    cat("\n**✅ No validation issues detected**\n")
+  }
+  
+  # Overall status assessment
+  cat("\n**Overall Data Quality Assessment:**\n")
+  
+  if (is.null(df_raw)) {
+    cat("- **Status:** ❌ **DATA LOADING FAILED** - No analysis possible\n")
+    cat("- **Action required:** Check file path and format\n")
+  } else if (validation_results$errors > 0) {
+    cat("- **Status:** ⚠️ **ERRORS DETECTED** - Data available but with critical issues\n")
+    cat("- **Action required:** Review and fix error conditions before proceeding\n")
+  } else if (validation_results$warnings > 0) {
+    cat("- **Status:** ⚠️ **WARNINGS PRESENT** - Data usable but with minor issues\n")
+    cat("- **Action required:** Review warnings for potential improvements\n")
+  } else {
+    cat("- **Status:** ✅ **DATA QUALITY GOOD** - Ready for analysis\n")
+    cat("- **Action required:** None - proceed with report generation\n")
+  }
+  
+  # Store validation results globally
+  assign("validation_results", validation_results, envir = .GlobalEnv)
+  assign("df_raw_validated", df_raw, envir = .GlobalEnv)
+  if (!is.null(company_data)) {
+    assign("company_data_extracted", company_data, envir = .GlobalEnv)
+  }
+  
+}, error = function(e) {
+  cat("⚠️ **Error generating validation summary:** ", e$message, "\n")
+})
+
+cat("\n---\n")
+cat("*End of Validation Debug Summary*\n")
+```
+
+
+```{r load-real-data-unconditional, echo=FALSE, include=FALSE}
+# ========================================================================
+# UNCONDITIONAL DATA LOADING WITH FUZZY MATCHING & COMPANY AVERAGING
+# This runs ALWAYS (not just in guide mode) to ensure real data is used
+# ========================================================================
+
+# Initialize variables
+df_master <- NULL
+company_data_extracted <- NULL
+company_data_all <- NULL  # All entries for this company
+company_data_average <- NULL  # Average across all company respondents
+has_multiple_respondents <- FALSE
+
+# Define data file path
+data_file <- "data/cleaned_master.csv"
+
+# Fuzzy string matching function
+fuzzy_match_company <- function(target, candidates) {
+  # Normalize strings for comparison
+  normalize <- function(x) {
+    tolower(trimws(gsub("[^a-zA-Z0-9]", "", x)))
+  }
+
+  target_norm <- normalize(target)
+  candidates_norm <- sapply(candidates, normalize)
+
+  # Try exact match first
+  exact <- which(candidates_norm == target_norm)
+  if (length(exact) > 0) return(exact)
+
+  # Try substring match (company name contains or is contained in target)
+  substring <- which(
+    grepl(target_norm, candidates_norm, fixed = TRUE) |
+    grepl(candidates_norm, target_norm, fixed = TRUE)
+  )
+  if (length(substring) > 0) return(substring)
+
+  # Try first word match (e.g., "Scania" matches "Scania Logistics NL")
+  target_first <- strsplit(target_norm, " ")[[1]][1]
+  if (nchar(target_first) > 3) {  # Only if first word is substantial
+    first_word <- which(grepl(paste0("^", target_first), candidates_norm))
+    if (length(first_word) > 0) return(first_word)
+  }
+
+  return(integer(0))  # No match
+}
+
+# Try to load the cleaned master data
+if (file.exists(data_file)) {
+  tryCatch({
+    # Try multiple loading strategies
+    df_master <- tryCatch({
+      readr::read_csv(data_file, show_col_types = FALSE)
+    }, error = function(e) {
+      read.csv(data_file, stringsAsFactors = FALSE, check.names = FALSE)
+    })
+
+    # Clean column names to match expected format (lowercase, no special chars)
+    colnames(df_master) <- tolower(trimws(colnames(df_master)))
+
+    # Store for use in guide mode sections
+    df_raw_validated <- df_master
+
+    # Extract company-specific data
+    company_target <- params$company
+
+    # Find company column
+    company_cols <- colnames(df_master)[grepl("company", colnames(df_master))]
+
+    if (length(company_cols) > 0) {
+      company_col <- company_cols[1]
+
+      # Use fuzzy matching to find company
+      company_matches <- fuzzy_match_company(company_target, df_master[[company_col]])
+
+      if (length(company_matches) > 0) {
+        # Extract ALL entries for this company
+        company_data_all <- df_master[company_matches, , drop = FALSE]
+
+        # Filter by person name if provided
+        person_target <- if(!is.null(params$person)) params$person else ""
+        if (person_target != "" && "name" %in% colnames(company_data_all)) {
+          # Normalize person names for matching
+          normalize_name <- function(x) {
+            tolower(trimws(as.character(x)))
+          }
+
+          person_target_norm <- normalize_name(person_target)
+          person_matches <- which(normalize_name(company_data_all$name) == person_target_norm)
+
+          if (length(person_matches) > 0) {
+            # Use the specific person's data
+            company_data_extracted <- company_data_all[person_matches[1], , drop = FALSE]
+          } else {
+            # Person not found, fall back to first entry
+            company_data_extracted <- company_data_all[1, , drop = FALSE]
+          }
+        } else {
+          # No person specified, use first entry
+          company_data_extracted <- company_data_all[1, , drop = FALSE]
+        }
+
+        # Check if multiple respondents exist
+        has_multiple_respondents <- nrow(company_data_all) >= 2
+
+        # Calculate company average if multiple respondents
+        if (has_multiple_respondents) {
+          score_cols <- c("up__r", "up__c", "up__f", "up__v", "up__a",
+                         "in__r", "in__c", "in__f", "in__v", "in__a",
+                         "do__r", "do__c", "do__f", "do__v", "do__a")
+
+          # Create average data frame
+          company_data_average <- company_data_extracted  # Copy structure
+
+          # Calculate means for score columns
+          for (col in score_cols) {
+            if (col %in% colnames(company_data_all)) {
+              vals <- as.numeric(company_data_all[[col]])
+              company_data_average[[col]] <- mean(vals, na.rm = TRUE)
+            }
+          }
+        }
+      }
+    }
+
+  }, error = function(e) {
+    # Silent fail - will use synthetic data as fallback
+  })
+}
+```
+
+```{r dashboard-setup, echo=FALSE, include=FALSE}
+# ========================================================================
+# DASHBOARD DATA PREPARATION & SETUP
+# ========================================================================
+
+# Extract company and person information
+company_name <- params$company
+person_name <- if(!is.null(params$person)) params$person else ""
+# Sanitize: treat placeholder values as empty
+if (is.na(person_name) || trimws(person_name) %in% c("-", "?", "N/A", "n/a", "NA", "Unknown", "unknown", "")) {
+  person_name <- ""
+}
+
+# Initialize dashboard data
+dashboard_data <- NULL
+data_source <- "synthetic"
+
+# Try to use real data first
+tryCatch({
+  if (exists("company_data_extracted") && !is.null(company_data_extracted)) {
+    dashboard_data <- company_data_extracted
+    data_source <- "real"
+
+    # Extract person information from the data
+    if ("name" %in% colnames(dashboard_data) && (is.na(person_name) || person_name == "")) {
+      person_name <- as.character(dashboard_data$name[1])
+      if (is.na(person_name) || trimws(person_name) %in% c("-", "?", "N/A", "n/a", "NA", "Unknown", "unknown", "")) {
+        person_name <- ""
+      }
+    }
+
+  } else if (exists("df_raw_validated") && !is.null(df_raw_validated)) {
+    # Extract from validated data
+    company_cols <- colnames(df_raw_validated)[grepl("company|name", tolower(colnames(df_raw_validated)))]
+    if (length(company_cols) > 0) {
+      matches <- which(tolower(trimws(df_raw_validated[[company_cols[1]]])) == tolower(trimws(company_name)))
+      if (length(matches) > 0) {
+        dashboard_data <- df_raw_validated[matches[1], , drop = FALSE]
+        data_source <- "real"
+
+        # Extract person information from the data
+        if ("name" %in% colnames(dashboard_data) && (is.na(person_name) || person_name == "")) {
+          person_name <- as.character(dashboard_data$name[1])
+          if (is.na(person_name) || trimws(person_name) %in% c("-", "?", "N/A", "n/a", "NA", "Unknown", "unknown", "")) {
+            person_name <- ""
+          }
+        }
+      }
+    }
+  }
+}, error = function(e) {})
+
+# Extract additional person details (function/role and submit date) BEFORE filtering columns
+person_function <- ""
+submit_date <- ""
+if (!is.null(dashboard_data) && data_source == "real") {
+  if ("function" %in% colnames(dashboard_data)) {
+    person_function <- as.character(dashboard_data[1, "function"])
+    if (is.na(person_function) || trimws(person_function) %in% c("-", "?", "N/A", "n/a", "NA", "")) {
+      person_function <- ""
+    }
+  }
+  if ("submitdate" %in% colnames(dashboard_data)) {
+    raw_date <- as.character(dashboard_data[1, "submitdate"])
+    if (!is.na(raw_date) && nchar(raw_date) > 0) {
+      # If it looks like a date (contains dash or colon), use as-is
+      if (grepl("[-:]", raw_date)) {
+        submit_date <- raw_date
+      } else if (grepl("^[0-9]+$", raw_date)) {
+        # Pure number - might be Unix timestamp
+        unix_time <- as.numeric(raw_date)
+        submit_date <- format(as.POSIXct(unix_time, origin="1970-01-01"), "%Y-%m-%d %H:%M:%S")
+      } else {
+        submit_date <- raw_date
+      }
+    } else {
+      submit_date <- ""
+    }
+  }
+}
+
+# Generate synthetic data if needed
+if (is.null(dashboard_data)) {
+  set.seed(abs(sum(utf8ToInt(company_name))))
+  base_score <- runif(1, 2.2, 4.3)
+  variations <- runif(15, -0.9, 0.9)
+  scores <- pmax(0.5, pmin(4.8, base_score + variations))
+
+  dashboard_data <- data.frame(
+    company_name = company_name,
+    up__r = scores[1], up__c = scores[2], up__f = scores[3], up__v = scores[4], up__a = scores[5],
+    in__r = scores[6], in__c = scores[7], in__f = scores[8], in__v = scores[9], in__a = scores[10],
+    do__r = scores[11], do__c = scores[12], do__f = scores[13], do__v = scores[14], do__a = scores[15],
+    overall_scres = mean(scores),
+    stringsAsFactors = FALSE
+  )
+  data_source <- "synthetic"
+}
+
+# Ensure numeric conversion and valid ranges - ONLY for score columns
+score_cols <- c("up__r", "up__c", "up__f", "up__v", "up__a",
+                "in__r", "in__c", "in__f", "in__v", "in__a",
+                "do__r", "do__c", "do__f", "do__v", "do__a")
+
+# Keep only score columns and company_name to avoid timestamp conversion issues
+cols_to_keep <- c("company_name", score_cols[score_cols %in% colnames(dashboard_data)])
+if (length(cols_to_keep) > 1) {
+  dashboard_data <- dashboard_data[, cols_to_keep, drop = FALSE]
+}
+
+for (col in score_cols) {
+  if (col %in% colnames(dashboard_data)) {
+    # Convert to character first
+    col_data <- as.character(dashboard_data[[col]])
+
+    # Replace commas with dots for European number format
+    col_data <- gsub(",", ".", col_data)
+
+    # Remove any non-numeric characters except dots and minus signs
+    # This handles "?", "N/A", "n.a.", symbols, etc.
+    col_data <- gsub("[^0-9.-]", "", col_data)
+
+    # Convert to numeric (non-convertible values become NA)
+    col_data <- suppressWarnings(as.numeric(col_data))
+
+    # Clamp valid values to range [0, 5], keep NA as NA
+    col_data <- ifelse(is.na(col_data), NA, pmax(0, pmin(5, col_data)))
+
+    dashboard_data[[col]] <- col_data
+  }
+}
+
+# Calculate pillar averages (na.rm = TRUE handles missing values properly)
+# If ALL values in a pillar are NA, the average will be NaN
+upstream_scores <- c(dashboard_data$up__r, dashboard_data$up__c, dashboard_data$up__f, dashboard_data$up__v, dashboard_data$up__a)
+internal_scores <- c(dashboard_data$in__r, dashboard_data$in__c, dashboard_data$in__f, dashboard_data$in__v, dashboard_data$in__a)
+downstream_scores <- c(dashboard_data$do__r, dashboard_data$do__c, dashboard_data$do__f, dashboard_data$do__v, dashboard_data$do__a)
+
+upstream_avg <- if(all(is.na(upstream_scores))) NA else mean(upstream_scores, na.rm = TRUE)
+internal_avg <- if(all(is.na(internal_scores))) NA else mean(internal_scores, na.rm = TRUE)
+downstream_avg <- if(all(is.na(downstream_scores))) NA else mean(downstream_scores, na.rm = TRUE)
+
+# Overall score only includes non-NA pillar averages
+overall_score <- mean(c(upstream_avg, internal_avg, downstream_avg), na.rm = TRUE)
+
+# Language detection
+detected_language <- "english"
+if (!is.null(dashboard_data) && "language" %in% colnames(dashboard_data)) {
+  lang_val <- as.character(dashboard_data$language[1])
+  if (!is.na(lang_val) && grepl("dutch|nl", tolower(lang_val))) {
+    detected_language <- "dutch"
+  }
+}
+
+# Dimension names based on language
+dimension_names <- if (detected_language == "dutch") {
+  c("Redundantie", "Samenwerking", "Flexibiliteit", "Transparantie", "Behendigheid")
+} else {
+  c("Redundancy", "Collaboration", "Flexibility", "Visibility", "Agility")
+}
+
+# IMPROVED gap analysis function with specific examples
+analyze_pillar_gap <- function(prefix) {
+  if (detected_language == "dutch") {
+    dims <- c("Redundantie", "Samenwerking", "Flexibiliteit", "Transparantie", "Behendigheid")
+  } else {
+    dims <- c("Redundancy", "Collaboration", "Flexibility", "Visibility", "Agility")
+  }
+  
+  codes <- c("r", "c", "f", "v", "a")
+  scores <- numeric(5)
+
+  for (i in 1:5) {
+    col <- paste0(prefix, "__", codes[i])
+    if (col %in% colnames(dashboard_data)) {
+      val <- dashboard_data[[col]][1]
+      # Replace NA with 2.5 for analysis purposes
+      scores[i] <- if(is.na(val)) 2.5 else val
+    } else {
+      scores[i] <- 2.5
+    }
+  }
+  names(scores) <- dims
+
+  # Find highest and lowest (all values should be numeric now)
+  max_idx <- which.max(scores)
+  min_idx <- which.min(scores)
+
+  highest_dim <- if(length(max_idx) > 0) names(scores)[max_idx] else dims[1]
+  lowest_dim <- if(length(min_idx) > 0) names(scores)[min_idx] else dims[1]
+  highest_score <- if(length(max_idx) > 0) scores[max_idx] else 2.5
+  lowest_score <- if(length(min_idx) > 0) scores[min_idx] else 2.5
+  
+  # Get examples based on dimension
+  get_examples <- function(dimension, is_high) {
+    if (detected_language == "dutch") {
+      examples <- list(
+        Redundantie = list(
+          high = c("Meerdere leveranciers gecontracteerd voor kritieke onderdelen", "Strategische veiligheidsvoorraden onderhouden"),
+          low = c("Afhankelijkheid van enkele kritieke leveranciers", "Minimale voorraadbuffers in productieketen")
+        ),
+        Samenwerking = list(
+          high = c("Wekelijkse planningsessies met kernleveranciers", "Gezamenlijke vraagvoorspelling en capaciteitsplanning"),
+          low = c("Beperkte communicatie met leveranciers", "Geen gezamenlijke probleemoplossing geïmplementeerd")
+        ),
+        Flexibiliteit = list(
+          high = c("Contracten bevatten volumeflexibiliteit en aanpassingen", "Leveranciers kunnen snel schakelen tussen varianten"),
+          low = c("Rigide contractvoorwaarden zonder flexibiliteit", "Vaste productiecycli zonder aanpassingsmogelijkheid")
+        ),
+        Transparantie = list(
+          high = c("Real-time inzicht in leveranciervoorraden", "Leveranciers delen productieplanning voor 4+ weken"),
+          low = c("Beperkt inzicht in leverancierprocessen", "Geen gedeelde systemen voor planning")
+        ),
+        Behendigheid = list(
+          high = c("Snelle escalatieprocedures voor issues geïmplementeerd", "Geautomatiseerde waarschuwingssystemen actief"),
+          low = c("Trage reactie op leverancierverstoringen", "Handmatige processen voor issue management")
+        )
+      )
+    } else {
+      examples <- list(
+        Redundancy = list(
+          high = c("Multiple suppliers contracted for critical components", "Strategic safety stock maintained"),
+          low = c("Dependency on few critical suppliers", "Minimal inventory buffers in production chain")
+        ),
+        Collaboration = list(
+          high = c("Weekly planning sessions with key suppliers", "Joint demand forecasting and capacity planning"),
+          low = c("Limited communication with suppliers", "No joint problem-solving implemented")
+        ),
+        Flexibility = list(
+          high = c("Contracts include volume flexibility and adaptations", "Suppliers can quickly switch between variants"),
+          low = c("Rigid contract terms without flexibility", "Fixed production cycles without adaptation options")
+        ),
+        Visibility = list(
+          high = c("Real-time insight into supplier inventory", "Suppliers share production planning for 4+ weeks"),
+          low = c("Limited insight into supplier processes", "No shared systems for planning")
+        ),
+        Agility = list(
+          high = c("Fast escalation procedures for issues implemented", "Automated warning systems active"),
+          low = c("Slow response to supplier disruptions", "Manual processes for issue management")
+        )
+      )
+    }
+
+    # Check if dimension exists in examples
+    if (!dimension %in% names(examples)) {
+      # Return generic fallback examples if dimension not found
+      if (is_high) {
+        return(c("Strong performance in this area", "Effective practices implemented"))
+      } else {
+        return(c("Room for improvement in this area", "Consider strengthening practices"))
+      }
+    }
+
+    if (is_high) examples[[dimension]]$high else examples[[dimension]]$low
+  }
+
+  # Use tryCatch to handle any errors gracefully
+  high_examples <- tryCatch(
+    get_examples(highest_dim, TRUE),
+    error = function(e) c("Strong performance area", "Effective practices")
+  )
+
+  low_examples <- tryCatch(
+    get_examples(lowest_dim, FALSE),
+    error = function(e) c("Area for improvement", "Consider development")
+  )
+  
+  list(
+    highest_dim = highest_dim,
+    lowest_dim = lowest_dim,
+    highest_score = highest_score,
+    lowest_score = lowest_score,
+    high_examples = high_examples,
+    low_examples = low_examples
+  )
+}
+
+up_analysis <- analyze_pillar_gap("up")
+in_analysis <- analyze_pillar_gap("in") 
+do_analysis <- analyze_pillar_gap("do")
+```
+
+::: {.content-visible when-format="pdf"}
+\newgeometry{left=0.8cm,right=0.8cm,top=1.0cm,bottom=0.8cm}
+\thispagestyle{empty}
+
+\begin{tikzpicture}[remember picture,overlay]
+  \node[opacity=0.2] at (current page.north east) [anchor=north east,xshift=-0.5cm,yshift=-0.5cm] {\includegraphics[height=1.2cm]{img/logo-resiliencescan.png}};
+  \node[opacity=0.2] at (current page.east) [anchor=east,xshift=-1cm,yshift=10cm] {\includegraphics[width=3cm]{img/logo-windesheim.png}};
+  \node[opacity=0.2] at (current page.east) [anchor=east,xshift=-1cm,yshift=7cm] {\includegraphics[width=1.2cm]{img/logo-RUG.png}};
+  \node[opacity=0.2] at (current page.east) [anchor=east,xshift=-1cm,yshift=4cm] {\includegraphics[width=3cm]{img/logo-involvation.png}};
+\end{tikzpicture}
+
+\vspace{0.5cm}
+:::
+
+## `r if (detected_language == "dutch") "Supply Chain Resilience Analyse" else "Strategic Supply Chain Resilience Analysis"` {.unnumbered}
+
+::: {.content-visible when-format="pdf"}
+\textbf{\Large `r company_name`}
+
+\vspace{0.3cm}
+
+`r if (exists("has_multiple_respondents") && has_multiple_respondents) paste("\\textbf{Survey Respondents:}", nrow(company_data_all), "people from this company\\\\")`
+
+`r if (!is.na(person_name) && nchar(person_name) > 0) { if (!is.na(person_function) && nchar(person_function) > 0) paste("\\textbf{This Report:}", person_name, "---", gsub("&", "\\\\&", person_function), "\\\\") else paste("\\textbf{This Report:}", person_name, "\\\\") }`
+
+`r if (!is.na(submit_date) && nchar(submit_date) > 0) paste("\\textbf{Survey Date:}", submit_date, "\\\\")`
+
+\textbf{Overall SCRES:} `r sprintf("%.2f", overall_score)`/5.00
+
+\vspace{0.4cm}
+:::
+
+`r if (exists("has_multiple_respondents") && has_multiple_respondents) "### Individual Respondent Dashboard" else ""`
+
+```{r main-dashboard-content, echo=FALSE, fig.height=9, fig.width=13}
+# ========================================================================
+# MAIN DASHBOARD WITH 4 RADAR CHARTS (INDIVIDUAL)
+# ========================================================================
+
+# Create comprehensive dashboard layout
+tryCatch({
+  if ("fmsb" %in% loaded_packages) {
+    
+    # Set up 2x2 layout for radar charts
+    layout_matrix <- matrix(c(1,2,3,4), nrow=2, ncol=2, byrow=TRUE)
+    layout(layout_matrix, widths=c(1,1), heights=c(1,1))
+    par(mar = c(2, 1, 4, 1))
+    
+    # Function to create radar data
+    create_radar <- function(prefix, title, color) {
+      scores <- c(
+        dashboard_data[[paste0(prefix, "__r")]][1],
+        dashboard_data[[paste0(prefix, "__c")]][1],
+        dashboard_data[[paste0(prefix, "__f")]][1],
+        dashboard_data[[paste0(prefix, "__v")]][1],
+        dashboard_data[[paste0(prefix, "__a")]][1]
+      )
+      # For display: NaN/NA values default to 0
+      scores[is.na(scores)] <- 0
+
+      radar_data <- data.frame(
+        Agility = c(5, 0, scores[5]),
+        Visibility = c(5, 0, scores[4]),
+        Flexibility = c(5, 0, scores[3]),
+        Collaboration = c(5, 0, scores[2]),
+        Redundancy = c(5, 0, scores[1])
+      )
+
+      fmsb::radarchart(radar_data,
+                       axistype = 2,
+                       pcol = color,
+                       pfcol = scales::alpha(color, 0.25),
+                       plwd = 2.5,
+                       cglcol = "grey70",
+                       cglty = 1,
+                       axislabcol = "grey40",
+                       caxislabels = seq(0, 5, 1),
+                       title = title)
+    }
+    
+    # Create all 4 radar charts
+    up_label <- if(is.na(upstream_avg)) "N/A" else sprintf("%.1f", upstream_avg)
+    in_label <- if(is.na(internal_avg)) "N/A" else sprintf("%.1f", internal_avg)
+    do_label <- if(is.na(downstream_avg)) "N/A" else sprintf("%.1f", downstream_avg)
+
+    create_radar("up", paste0("Upstream Resilience\n(μ=", up_label, ")"), "#0277BD")
+    create_radar("in", paste0("Internal Resilience\n(μ=", in_label, ")"), "#FF8F00")
+    create_radar("do", paste0("Downstream Resilience\n(μ=", do_label, ")"), "#2E7D32")
+    
+    # Overall radar with combined scores
+    overall_scores <- c(
+      mean(c(dashboard_data$up__r[1], dashboard_data$in__r[1], dashboard_data$do__r[1]), na.rm=TRUE),
+      mean(c(dashboard_data$up__c[1], dashboard_data$in__c[1], dashboard_data$do__c[1]), na.rm=TRUE),
+      mean(c(dashboard_data$up__f[1], dashboard_data$in__f[1], dashboard_data$do__f[1]), na.rm=TRUE),
+      mean(c(dashboard_data$up__v[1], dashboard_data$in__v[1], dashboard_data$do__v[1]), na.rm=TRUE),
+      mean(c(dashboard_data$up__a[1], dashboard_data$in__a[1], dashboard_data$do__a[1]), na.rm=TRUE)
+    )
+    # For display: NaN values (when all inputs are NA) default to 0
+    overall_scores[is.nan(overall_scores)] <- 0
+
+    overall_radar <- data.frame(
+      Agility = c(5, 0, overall_scores[5]),
+      Visibility = c(5, 0, overall_scores[4]),
+      Flexibility = c(5, 0, overall_scores[3]),
+      Collaboration = c(5, 0, overall_scores[2]),
+      Redundancy = c(5, 0, overall_scores[1])
+    )
+    
+    fmsb::radarchart(overall_radar,
+                     axistype = 2,
+                     pcol = "#e74c3c", 
+                     pfcol = scales::alpha("#e74c3c", 0.25),
+                     plwd = 3,
+                     cglcol = "grey70",
+                     cglty = 1,
+                     axislabcol = "grey40",
+                     caxislabels = seq(0, 5, 1),
+                     title = paste0("Overall SCRES: ", sprintf("%.2f", overall_score), "\n(Comprehensive Resilience)"))
+    
+    # Reset layout
+    par(mfrow = c(1, 1), mar = c(5, 4, 4, 2))
+    
+  } else {
+    plot.new()
+    text(0.5, 0.5, "Radar visualization requires fmsb package", cex = 1.5, col = "red")
+  }
+  
+}, error = function(e) {
+  par(mfrow = c(1, 1), mar = c(5, 4, 4, 2))
+  plot.new()
+  text(0.5, 0.5, "Visualization error", cex = 1.5, col = "red")
+})
+```
+
+::: {.content-visible when-format="pdf"}
+`r if (exists("has_multiple_respondents") && has_multiple_respondents) "\\newpage" else ""`
+:::
+
+`r if (exists("has_multiple_respondents") && has_multiple_respondents) "## Company Average Dashboard (All Respondents)" else ""`
+
+`r if (exists("has_multiple_respondents") && has_multiple_respondents) paste("This dashboard shows the **average scores across all", nrow(company_data_all), "respondents** from", company_name, "for comparison with the individual scores on the previous page.")`
+
+```{r company-average-dashboard, echo=FALSE, fig.height=9, fig.width=13, eval=exists("has_multiple_respondents") && has_multiple_respondents}
+# ========================================================================
+# COMPANY AVERAGE DASHBOARD (2+ RESPONDENTS ONLY)
+# ========================================================================
+
+if (exists("company_data_average") && !is.null(company_data_average)) {
+  tryCatch({
+    if ("fmsb" %in% loaded_packages) {
+
+      # Calculate company average scores
+      avg_score_cols <- c("up__r", "up__c", "up__f", "up__v", "up__a",
+                         "in__r", "in__c", "in__f", "in__v", "in__a",
+                         "do__r", "do__c", "do__f", "do__v", "do__a")
+
+      for (col in avg_score_cols) {
+        if (col %in% colnames(company_data_average)) {
+          company_data_average[[col]] <- as.numeric(gsub(",", ".", as.character(company_data_average[[col]])))
+          company_data_average[[col]] <- pmax(0, pmin(5, company_data_average[[col]]))
+        }
+      }
+
+      # Calculate pillar averages for company
+      company_upstream_avg <- mean(c(company_data_average$up__r, company_data_average$up__c, company_data_average$up__f, company_data_average$up__v, company_data_average$up__a), na.rm = TRUE)
+      company_internal_avg <- mean(c(company_data_average$in__r, company_data_average$in__c, company_data_average$in__f, company_data_average$in__v, company_data_average$in__a), na.rm = TRUE)
+      company_downstream_avg <- mean(c(company_data_average$do__r, company_data_average$do__c, company_data_average$do__f, company_data_average$do__v, company_data_average$do__a), na.rm = TRUE)
+      company_overall_score <- mean(c(company_upstream_avg, company_internal_avg, company_downstream_avg), na.rm = TRUE)
+
+      # Set up 2x2 layout for radar charts
+      layout_matrix <- matrix(c(1,2,3,4), nrow=2, ncol=2, byrow=TRUE)
+      layout(layout_matrix, widths=c(1,1), heights=c(1,1))
+      par(mar = c(2, 1, 4, 1))
+
+      # Function to create radar data for company average
+      create_company_radar <- function(prefix, title, color) {
+        scores <- c(
+          company_data_average[[paste0(prefix, "__r")]][1],
+          company_data_average[[paste0(prefix, "__c")]][1],
+          company_data_average[[paste0(prefix, "__f")]][1],
+          company_data_average[[paste0(prefix, "__v")]][1],
+          company_data_average[[paste0(prefix, "__a")]][1]
+        )
+        # For display: NaN/NA values default to 0
+        scores[is.na(scores)] <- 0
+
+        radar_data <- data.frame(
+          Agility = c(5, 0, scores[5]),
+          Visibility = c(5, 0, scores[4]),
+          Flexibility = c(5, 0, scores[3]),
+          Collaboration = c(5, 0, scores[2]),
+          Redundancy = c(5, 0, scores[1])
+        )
+
+        fmsb::radarchart(radar_data,
+                         axistype = 2,
+                         pcol = color,
+                         pfcol = scales::alpha(color, 0.25),
+                         plwd = 2.5,
+                         cglcol = "grey70",
+                         cglty = 1,
+                         axislabcol = "grey40",
+                         caxislabels = seq(0, 5, 1),
+                         title = title)
+      }
+
+      # Create all 4 radar charts with company averages
+      create_company_radar("up", paste0("Upstream Resilience (Company Avg)\n(μ=", sprintf("%.1f", company_upstream_avg), ", n=", nrow(company_data_all), ")"), "#0277BD")
+      create_company_radar("in", paste0("Internal Resilience (Company Avg)\n(μ=", sprintf("%.1f", company_internal_avg), ", n=", nrow(company_data_all), ")"), "#FF8F00")
+      create_company_radar("do", paste0("Downstream Resilience (Company Avg)\n(μ=", sprintf("%.1f", company_downstream_avg), ", n=", nrow(company_data_all), ")"), "#2E7D32")
+
+      # Overall company average radar
+      company_overall_scores <- c(
+        mean(c(company_data_average$up__r[1], company_data_average$in__r[1], company_data_average$do__r[1]), na.rm=TRUE),
+        mean(c(company_data_average$up__c[1], company_data_average$in__c[1], company_data_average$do__c[1]), na.rm=TRUE),
+        mean(c(company_data_average$up__f[1], company_data_average$in__f[1], company_data_average$do__f[1]), na.rm=TRUE),
+        mean(c(company_data_average$up__v[1], company_data_average$in__v[1], company_data_average$do__v[1]), na.rm=TRUE),
+        mean(c(company_data_average$up__a[1], company_data_average$in__a[1], company_data_average$do__a[1]), na.rm=TRUE)
+      )
+      # For display: NaN values (when all inputs are NA) default to 0
+      company_overall_scores[is.nan(company_overall_scores)] <- 0
+
+      company_overall_radar <- data.frame(
+        Agility = c(5, 0, company_overall_scores[5]),
+        Visibility = c(5, 0, company_overall_scores[4]),
+        Flexibility = c(5, 0, company_overall_scores[3]),
+        Collaboration = c(5, 0, company_overall_scores[2]),
+        Redundancy = c(5, 0, company_overall_scores[1])
+      )
+
+      fmsb::radarchart(company_overall_radar,
+                       axistype = 2,
+                       pcol = "#e74c3c",
+                       pfcol = scales::alpha("#e74c3c", 0.25),
+                       plwd = 3,
+                       cglcol = "grey70",
+                       cglty = 1,
+                       axislabcol = "grey40",
+                       caxislabels = seq(0, 5, 1),
+                       title = paste0("Overall Company SCRES: ", sprintf("%.2f", company_overall_score), "\n(Average of ", nrow(company_data_all), " Respondents)"))
+
+      # Reset layout
+      par(mfrow = c(1, 1), mar = c(5, 4, 4, 2))
+
+    }
+  }, error = function(e) {
+    par(mfrow = c(1, 1), mar = c(5, 4, 4, 2))
+  })
+}
+```
+
+```{r performance-summary, echo=FALSE}
+# Calculate performance assessment
+performance_level <- if (overall_score >= 4.0) {
+  if (detected_language == "dutch") "Uitstekend" else "Excellent"
+} else if (overall_score >= 3.5) {
+  if (detected_language == "dutch") "Goed" else "Good"
+} else if (overall_score >= 3.0) {
+  if (detected_language == "dutch") "Gemiddeld" else "Average"
+} else if (overall_score >= 2.5) {
+  if (detected_language == "dutch") "Onder gemiddeld" else "Below Average"
+} else {
+  if (detected_language == "dutch") "Verbetering nodig" else "Needs Improvement"
+}
+
+# Determine callout type based on performance
+callout_type <- if (overall_score >= 4.0) {
+  "tip"
+} else if (overall_score >= 3.5) {
+  "note"
+} else if (overall_score >= 3.0) {
+  "warning"
+} else {
+  "important"
+}
+
+pillars <- c("Upstream" = upstream_avg, "Internal" = internal_avg, "Downstream" = downstream_avg)
+
+# Handle NA values when finding strongest/weakest
+valid_pillars <- pillars[!is.na(pillars)]
+if(length(valid_pillars) > 0) {
+  strongest <- names(valid_pillars)[which.max(valid_pillars)]
+  weakest <- names(valid_pillars)[which.min(valid_pillars)]
+} else {
+  strongest <- "N/A"
+  weakest <- "N/A"
+}
+```
+
+::: {.callout-`r callout_type` appearance="simple"}
+### `r if (detected_language == "dutch") "Managementsamenvatting" else "Executive Summary"`
+
+`r if (detected_language == "dutch") "Deze analyse evalueert uw supply chain veerkracht via het SCRES-framework: Upstream (UP), Internal (IN) en Downstream (DO) capaciteiten over vijf dimensies." else "This analysis evaluates your supply chain resilience using the SCRES framework: Upstream (UP), Internal (IN), and Downstream (DO) capabilities across five dimensions."`
+
+**`r if (detected_language == "dutch") "Overall Score:" else "Overall Score:"` `r performance_level`** — `r sprintf("%.2f", overall_score)`/5.00
+
+`r if (length(valid_pillars) > 0) { if (detected_language == "dutch") paste("**Sterkste domein:**", if(strongest == "Internal") "Intern" else strongest, paste0("(", sprintf("%.2f", max(valid_pillars)), ") — Behoud deze sterkte")) else paste("**Strongest domain:**", strongest, paste0("(", sprintf("%.2f", max(valid_pillars)), ") — Maintain this strength")) } else { if (detected_language == "dutch") "**Sterkste domein:** Onvoldoende data" else "**Strongest domain:** Insufficient data" }`
+
+`r if (length(valid_pillars) > 0) { if (detected_language == "dutch") paste("**Ontwikkelpunt:**", if(weakest == "Internal") "Intern" else weakest, paste0("(", sprintf("%.2f", min(valid_pillars)), ") — Prioriteit voor verbetering")) else paste("**Development priority:**", weakest, paste0("(", sprintf("%.2f", min(valid_pillars)), ") — Priority for improvement")) } else { if (detected_language == "dutch") "**Ontwikkelpunt:** Onvoldoende data" else "**Development priority:** Insufficient data" }`
+
+`r if (length(valid_pillars) > 0) { gap <- max(valid_pillars) - min(valid_pillars); if (detected_language == "dutch") paste0("**Performance gap:** ", sprintf("%.2f", gap), if(!is.na(gap) && gap > 1.0) " — Aanzienlijke ontwikkelkansen" else " — Redelijk gebalanceerd") else paste0("**Performance gap:** ", sprintf("%.2f", gap), if(!is.na(gap) && gap > 1.0) " — Significant development opportunities" else " — Reasonably balanced") } else { if (detected_language == "dutch") "**Performance gap:** Onvoldoende data" else "**Performance gap:** Insufficient data" }`
+:::
+
+::: {.callout-note appearance="simple"}
+### `r if (detected_language == "dutch") "Belangrijkste Inzichten" else "Key Insights"`
+
+```{r key-insights, echo=FALSE, results='asis'}
+# Compile key insights from all three pillars
+if (detected_language == "dutch") {
+  # UPSTREAM
+  cat(sprintf("**Upstream — %s:** %s zoals: %s\n\n",
+              up_analysis$highest_dim,
+              "Sterke punten zijn",
+              paste(up_analysis$high_examples, collapse = ", ")))
+
+  if (up_analysis$lowest_score < 3.0) {
+    cat(sprintf("**Upstream — %s:** %s zoals: %s\n\n",
+                up_analysis$lowest_dim,
+                "Aandachtspunten",
+                paste(up_analysis$low_examples, collapse = ", ")))
+  }
+
+  # INTERNAL
+  cat(sprintf("**Internal — %s:** %s zoals: %s\n\n",
+              in_analysis$highest_dim,
+              "Sterke punten zijn",
+              paste(in_analysis$high_examples, collapse = ", ")))
+
+  if (in_analysis$lowest_score < 3.0) {
+    cat(sprintf("**Internal — %s:** %s zoals: %s\n\n",
+                in_analysis$lowest_dim,
+                "Aandachtspunten",
+                paste(in_analysis$low_examples, collapse = ", ")))
+  }
+
+  # DOWNSTREAM
+  cat(sprintf("**Downstream — %s:** %s zoals: %s\n\n",
+              do_analysis$highest_dim,
+              "Sterke punten zijn",
+              paste(do_analysis$high_examples, collapse = ", ")))
+
+  if (do_analysis$lowest_score < 3.0) {
+    cat(sprintf("**Downstream — %s:** %s zoals: %s\n\n",
+                do_analysis$lowest_dim,
+                "Aandachtspunten",
+                paste(do_analysis$low_examples, collapse = ", ")))
+  }
+} else {
+  # UPSTREAM
+  cat(sprintf("**Upstream — %s:** Strong practices include %s\n\n",
+              up_analysis$highest_dim,
+              tolower(paste(up_analysis$high_examples, collapse = ", "))))
+
+  if (up_analysis$lowest_score < 3.0) {
+    cat(sprintf("**Upstream — %s:** Development areas include %s\n\n",
+                up_analysis$lowest_dim,
+                tolower(paste(up_analysis$low_examples, collapse = ", "))))
+  }
+
+  # INTERNAL
+  cat(sprintf("**Internal — %s:** Strong practices include %s\n\n",
+              in_analysis$highest_dim,
+              tolower(paste(in_analysis$high_examples, collapse = ", "))))
+
+  if (in_analysis$lowest_score < 3.0) {
+    cat(sprintf("**Internal — %s:** Development areas include %s\n\n",
+                in_analysis$lowest_dim,
+                tolower(paste(in_analysis$low_examples, collapse = ", "))))
+  }
+
+  # DOWNSTREAM
+  cat(sprintf("**Downstream — %s:** Strong practices include %s\n\n",
+              do_analysis$highest_dim,
+              tolower(paste(do_analysis$high_examples, collapse = ", "))))
+
+  if (do_analysis$lowest_score < 3.0) {
+    cat(sprintf("**Downstream — %s:** Development areas include %s\n\n",
+                do_analysis$lowest_dim,
+                tolower(paste(do_analysis$low_examples, collapse = ", "))))
+  }
+}
+```
+:::
+
+::: {.content-visible when-format="pdf"}
+\restoregeometry
+:::
+
+`r if (params$debug_mode) "\\newpage" else ""`
+
+`r if (params$debug_mode) "## Debug: Raw Score Values" else ""`
+
+`r if (params$debug_mode) paste0("**Company:** ", company_name, " | **Person:** ", person_name) else ""`
+
+```{r debug-table, echo=FALSE, eval=params$debug_mode}
+# Create debug table with all raw values
+debug_data <- data.frame(
+  Dimension = c("Redundancy", "Collaboration", "Flexibility", "Visibility", "Agility", "**Average**"),
+  Upstream = c(
+    sprintf("%.2f", dashboard_data$up__r[1]),
+    sprintf("%.2f", dashboard_data$up__c[1]),
+    sprintf("%.2f", dashboard_data$up__f[1]),
+    sprintf("%.2f", dashboard_data$up__v[1]),
+    sprintf("%.2f", dashboard_data$up__a[1]),
+    sprintf("**%.2f**", upstream_avg)
+  ),
+  Internal = c(
+    sprintf("%.2f", dashboard_data$in__r[1]),
+    sprintf("%.2f", dashboard_data$in__c[1]),
+    sprintf("%.2f", dashboard_data$in__f[1]),
+    sprintf("%.2f", dashboard_data$in__v[1]),
+    sprintf("%.2f", dashboard_data$in__a[1]),
+    sprintf("**%.2f**", internal_avg)
+  ),
+  Downstream = c(
+    sprintf("%.2f", dashboard_data$do__r[1]),
+    sprintf("%.2f", dashboard_data$do__c[1]),
+    sprintf("%.2f", dashboard_data$do__f[1]),
+    sprintf("%.2f", dashboard_data$do__v[1]),
+    sprintf("%.2f", dashboard_data$do__a[1]),
+    sprintf("**%.2f**", downstream_avg)
+  )
+)
+
+if ("kableExtra" %in% loaded_packages) {
+  kableExtra::kbl(debug_data, align = c("l", "c", "c", "c"),
+                  caption = paste("Overall SCRES:", sprintf("%.2f", overall_score))) %>%
+    kableExtra::kable_styling(bootstrap_options = c("striped", "hover"),
+                             full_width = FALSE,
+                             font_size = 11) %>%
+    kableExtra::row_spec(6, bold = TRUE, background = "#f0f0f0")
+} else {
+  knitr::kable(debug_data, align = c("l", "c", "c", "c"),
+               caption = paste("Overall SCRES:", sprintf("%.2f", overall_score)))
+}
+```

@@ -2,7 +2,7 @@ name: CI / Release
 
 # Every push to main runs lint+test, then detects whether a new release is
 # needed.  If the version in pyproject.toml does not yet have a matching git
-# tag, the build matrix fires on all three platforms and a GitHub Release is
+# tag, the build matrix fires on Windows and Linux and a GitHub Release is
 # created automatically.  PRs only run lint+test.
 
 on:
@@ -18,12 +18,17 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
           cache: pip
+
+      - name: Install system libraries
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends python3-tk tk-dev
 
       - name: Install dependencies
         run: |
@@ -50,7 +55,7 @@ jobs:
       version: ${{ steps.check.outputs.version }}
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0   # need full tag history
 
@@ -78,7 +83,7 @@ jobs:
             echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           fi
 
-  # ── Build artifacts on all three platforms ───────────────────────────────────
+  # ── Build artifacts: Windows and Linux ───────────────────────────────────────
   build:
     needs: version-check
     if: needs.version-check.outputs.release == 'true'
@@ -88,8 +93,6 @@ jobs:
         include:
           - os: windows-latest
             artifact: windows
-          - os: macos-latest
-            artifact: macos
           - os: ubuntu-latest
             artifact: linux
     runs-on: ${{ matrix.os }}
@@ -97,9 +100,9 @@ jobs:
       APP_VERSION: ${{ needs.version-check.outputs.version }}
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
           cache: pip
@@ -118,9 +121,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends \
-            libxkbcommon-x11-0 libxcb-xinerama0 libxcb-cursor0 \
-            libegl1 libglib2.0-0
+          sudo apt-get install -y --no-install-recommends python3-tk tk-dev
 
       # ── Windows ──────────────────────────────────────────────────────────────
       - name: Generate Windows version resource
@@ -152,15 +153,23 @@ jobs:
           os.makedirs("packaging", exist_ok=True)
           open("packaging/windows-version.txt","w").write(txt)
 
-      - name: Build Windows .exe
+      - name: Build Windows app (onedir)
         if: runner.os == 'Windows'
         shell: powershell
         run: |
           $icon = if (Test-Path "assets/icon.ico") { @("--icon","assets/icon.ico") } else { @() }
-          pyinstaller --clean --noconfirm --onefile --windowed `
+          pyinstaller --clean --noconfirm --onedir --windowed `
             @icon `
             --version-file packaging/windows-version.txt `
             --name "$env:REPO_NAME" `
+            --hidden-import tkinter `
+            --hidden-import _tkinter `
+            --add-data "ResilienceReport.qmd;." `
+            --add-data "img;img" `
+            --add-data "tex;tex" `
+            --add-data "_extensions;_extensions" `
+            --add-data "references.bib;." `
+            --add-data "QTDublinIrish.otf;." `
             app/main.py
 
       - name: Install NSIS
@@ -199,9 +208,10 @@ jobs:
           repo = os.environ["REPO_NAME"]
           ver  = os.environ["APP_VERSION"]
           # Use absolute paths: NSIS defaults CWD to the script's directory,
-          # so relative paths like "dist\foo.exe" would resolve under packaging\.
-          ws   = os.environ.get("GITHUB_WORKSPACE", os.getcwd())
-          dist = os.path.join(ws, "dist")
+          # so relative paths like "dist\foo\" would resolve under packaging\.
+          ws     = os.environ.get("GITHUB_WORKSPACE", os.getcwd())
+          dist   = os.path.join(ws, "dist")
+          bundle = os.path.join(dist, repo)
           nsi = textwrap.dedent(f"""
             Unicode true
             Name "{repo} {ver}"
@@ -212,15 +222,14 @@ jobs:
             Page instfiles
             Section
               SetOutPath "$INSTDIR"
-              File "{dist}\\{repo}.exe"
+              File /r "{bundle}\\"
               CreateShortcut "$DESKTOP\\{repo}.lnk" "$INSTDIR\\{repo}.exe"
               WriteUninstaller "$INSTDIR\\Uninstall.exe"
             SectionEnd
             Section "Uninstall"
-              Delete "$INSTDIR\\{repo}.exe"
-              Delete "$INSTDIR\\Uninstall.exe"
               Delete "$DESKTOP\\{repo}.lnk"
-              RMDir "$INSTDIR"
+              Delete "$INSTDIR\\Uninstall.exe"
+              RMDir /r "$INSTDIR"
             SectionEnd
           """).lstrip()
           os.makedirs("packaging", exist_ok=True)
@@ -231,50 +240,27 @@ jobs:
                   or r"C:\Program Files (x86)\NSIS\makensis.exe"
           subprocess.run([makensis, "packaging\\installer.nsi"], check=True)
 
-      - name: Rename Windows portable artifact
+      - name: Package Windows portable zip
         if: runner.os == 'Windows'
         shell: powershell
         run: |
-          Rename-Item "dist\$env:REPO_NAME.exe" `
-            "$env:REPO_NAME-$env:APP_VERSION-windows.exe"
-
-      # ── macOS ─────────────────────────────────────────────────────────────────
-      - name: Build macOS .app
-        if: runner.os == 'macOS'
-        run: |
-          ICON=""
-          [ -f "assets/icon.icns" ] && ICON="--icon assets/icon.icns"
-          [ -z "$ICON" ] && [ -f "assets/icon.ico" ] && ICON="--icon assets/icon.ico"
-          pyinstaller --clean --noconfirm --onefile --windowed \
-            $ICON \
-            --name "$REPO_NAME" \
-            app/main.py
-
-      - name: Package macOS .app.zip and .dmg
-        if: runner.os == 'macOS'
-        run: |
-          if [ -d "dist/$REPO_NAME.app" ]; then
-            cd dist
-            zip -r "${REPO_NAME}-${APP_VERSION}-macos.app.zip" "${REPO_NAME}.app"
-            cd ..
-            brew install create-dmg --quiet
-            create-dmg \
-              --volname "$REPO_NAME" \
-              --window-size 600 400 \
-              --icon-size 100 \
-              --icon "${REPO_NAME}.app" 150 190 \
-              --app-drop-link 450 190 \
-              "dist/${REPO_NAME}-${APP_VERSION}-macos.dmg" \
-              "dist/${REPO_NAME}.app" || true
-            rm -rf "dist/${REPO_NAME}.app"
-          fi
+          Compress-Archive -Path "dist\$env:REPO_NAME\*" `
+            -DestinationPath "dist\$env:REPO_NAME-$env:APP_VERSION-windows-portable.zip"
 
       # ── Linux ─────────────────────────────────────────────────────────────────
-      - name: Build Linux binary
+      - name: Build Linux app (onedir)
         if: runner.os == 'Linux'
         run: |
-          pyinstaller --clean --noconfirm --onefile \
+          pyinstaller --clean --noconfirm --onedir \
             --name "$REPO_NAME" \
+            --hidden-import tkinter \
+            --hidden-import _tkinter \
+            --add-data "ResilienceReport.qmd:." \
+            --add-data "img:img" \
+            --add-data "tex:tex" \
+            --add-data "_extensions:_extensions" \
+            --add-data "references.bib:." \
+            --add-data "QTDublinIrish.otf:." \
             app/main.py
 
       - name: Generate .desktop file
@@ -302,7 +288,8 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           mkdir -p AppDir/usr/bin
-          cp "dist/$REPO_NAME" AppDir/usr/bin/
+          # Copy the full onedir bundle into the AppImage
+          cp -r "dist/$REPO_NAME/"* AppDir/usr/bin/
           cp "packaging/${REPO_NAME}.desktop" AppDir/
           if [ -f "assets/icon.png" ]; then
             cp assets/icon.png "AppDir/${REPO_NAME}.png"
@@ -322,9 +309,8 @@ jobs:
           chmod +x appimagetool-x86_64.AppImage
           ARCH=x86_64 ./appimagetool-x86_64.AppImage --appimage-extract-and-run \
             AppDir "dist/${REPO_NAME}-${APP_VERSION}-x86_64.AppImage"
-          rm "dist/$REPO_NAME"
 
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v4
         with:
           name: release-${{ matrix.artifact }}
           path: dist/*
@@ -335,7 +321,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/download-artifact@v6
+      - uses: actions/download-artifact@v4
         with:
           pattern: release-*
           path: release-assets
