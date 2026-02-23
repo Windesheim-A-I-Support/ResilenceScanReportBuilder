@@ -61,6 +61,7 @@ class ResilienceScanGUI:
         self.email_queue = queue.Queue()
         self.is_generating = False
         self.is_sending_emails = False
+        self._gen_proc = None  # running quarto subprocess (for cancel/kill)
 
         # Email tracking system
         self.email_tracker = EmailTracker()
@@ -2352,12 +2353,40 @@ TOP 10 MOST ENGAGED COMPANIES:
                     # Removed --quiet to capture error details
                 ]
 
-                # Execute quarto render
-                result = subprocess.run(
-                    cmd, cwd=ROOT_DIR, capture_output=True, text=True, timeout=300
+                # Execute quarto render — stream stdout line-by-line to the log
+                self._gen_proc = subprocess.Popen(
+                    cmd,
+                    cwd=ROOT_DIR,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
                 )
+                stdout_lines = []
+                for line in self._gen_proc.stdout:
+                    line = line.rstrip()
+                    if line:
+                        self.log_gen(f"    {line}")
+                        stdout_lines.append(line)
+                    # Check for cancel between lines
+                    if not self.is_generating:
+                        self._gen_proc.kill()
+                        self._gen_proc.wait()
+                        temp_path = ROOT_DIR / temp_output
+                        if temp_path.exists():
+                            temp_path.unlink()
+                        self._gen_proc = None
+                        break
+                else:
+                    self._gen_proc.wait()
+                returncode = self._gen_proc.returncode if self._gen_proc else -1
+                self._gen_proc = None
 
-                if result.returncode == 0:
+                # If cancelled mid-render, break outer loop
+                if not self.is_generating:
+                    self.log_gen("Generation cancelled by user")
+                    break
+
+                if returncode == 0:
                     temp_path = ROOT_DIR / temp_output
                     if temp_path.exists():
                         import shutil
@@ -2407,45 +2436,14 @@ TOP 10 MOST ENGAGED COMPANIES:
 
                         success += 1
                     else:
-                        self.log_gen(f"  [ERROR] Error: Output file not found")
-                        if result.stderr:
-                            self.log_gen(f"     stderr: {result.stderr[-500:]}")
-                        if result.stdout:
-                            self.log_gen(f"     stdout: {result.stdout[-500:]}")
+                        self.log_gen(
+                            f"  [ERROR] Error: Output file not found after render"
+                        )
                         failed += 1
                 else:
-                    self.log_gen(f"  [ERROR] Error: Exit code {result.returncode}")
-
-                    # Show stderr (last 800 chars for readability)
-                    error_shown = False
-                    if result.stderr and result.stderr.strip():
-                        error_text = (
-                            result.stderr[-800:]
-                            if len(result.stderr) > 800
-                            else result.stderr
-                        )
-                        # Split into lines and indent
-                        for line in error_text.strip().split("\n"):
-                            if line.strip():
-                                self.log_gen(f"     {line}")
-                                error_shown = True
-
-                    # Show stdout if stderr is empty or short
-                    if result.stdout and result.stdout.strip():
-                        if not result.stderr or len(result.stderr) < 100:
-                            stdout_text = (
-                                result.stdout[-500:]
-                                if len(result.stdout) > 500
-                                else result.stdout
-                            )
-                            self.log_gen(f"     stdout: {stdout_text}")
-                            error_shown = True
-
-                    # If no error details were shown, mention that
-                    if not error_shown:
-                        self.log_gen(f"     No error details available from quarto")
-                        self.log_gen(f"     Company: {company}, Person: {person}")
-
+                    self.log_gen(
+                        f"  [ERROR] Error: Exit code {returncode} (output logged above)"
+                    )
                     failed += 1
 
             except FileNotFoundError as e:
@@ -2521,9 +2519,16 @@ TOP 10 MOST ENGAGED COMPANIES:
             )
 
     def cancel_generation(self):
-        """Cancel generation"""
+        """Cancel generation and kill any running quarto subprocess."""
         if messagebox.askyesno("Confirm", "Cancel report generation?"):
             self.is_generating = False
+            if self._gen_proc is not None:
+                try:
+                    self._gen_proc.kill()
+                    self._gen_proc.wait()
+                except Exception:
+                    pass
+                self._gen_proc = None
 
     def browse_output_folder(self):
         """Browse for output folder"""
