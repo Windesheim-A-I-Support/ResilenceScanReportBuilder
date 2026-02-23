@@ -21,6 +21,7 @@ from pathlib import Path
 from datetime import datetime
 import json
 import sys
+import yaml
 
 # Ensure repo root is on sys.path so sibling modules can be imported
 # (needed when running as `python app/main.py` from the repo root)
@@ -42,8 +43,22 @@ ROOT_DIR = Path(__file__).resolve().parents[1]  # repo root (one level up from a
 DATA_FILE = ROOT_DIR / "data" / "cleaned_master.csv"
 REPORTS_DIR = ROOT_DIR / "reports"
 TEMPLATE = ROOT_DIR / "ResilienceReport.qmd"
-CONFIG_FILE = ROOT_DIR / "config.yml"
 LOG_FILE = ROOT_DIR / "gui_log.txt"
+
+
+def _config_path() -> Path:
+    """Return path to config.yml in the writable user data directory."""
+    if getattr(sys, "frozen", False):
+        if sys.platform == "win32":
+            _base = Path(os.environ.get("APPDATA", str(Path.home()))) / "ResilienceScan"
+        else:
+            _base = Path.home() / ".local" / "share" / "resiliencescan"
+    else:
+        _base = ROOT_DIR
+    return _base / "config.yml"
+
+
+CONFIG_FILE = _config_path()
 
 
 class ResilienceScanGUI:
@@ -77,6 +92,7 @@ class ResilienceScanGUI:
 
         # Setup GUI
         self.setup_ui()
+        self.load_config()
         self.load_initial_data()
 
     def setup_ui(self):
@@ -745,6 +761,10 @@ class ResilienceScanGUI:
             smtp_frame, text=help_text, font=("Arial", 8), foreground="gray"
         ).grid(row=5, column=0, columnspan=2, sticky=tk.W, pady=5)
 
+        ttk.Button(
+            smtp_frame, text="Save Configuration", command=self.save_config
+        ).grid(row=6, column=0, columnspan=2, sticky=tk.W, pady=5)
+
         smtp_frame.columnconfigure(1, weight=1)
 
         editor_frame.columnconfigure(1, weight=1)
@@ -1016,6 +1036,47 @@ class ResilienceScanGUI:
         self.update_time()
 
     # ==================== Data Methods ====================
+
+    def load_config(self):
+        """Load SMTP settings from config.yml into GUI fields."""
+        if not CONFIG_FILE.exists():
+            return
+        try:
+            data = yaml.safe_load(CONFIG_FILE.read_text(encoding="utf-8")) or {}
+            smtp = data.get("smtp", {})
+            if smtp.get("server"):
+                self.smtp_server_var.set(smtp["server"])
+            if smtp.get("port"):
+                self.smtp_port_var.set(str(smtp["port"]))
+            if smtp.get("from_address"):
+                self.smtp_from_var.set(smtp["from_address"])
+            if smtp.get("username"):
+                self.smtp_username_var.set(smtp["username"])
+            if smtp.get("password"):
+                self.smtp_password_var.set(smtp["password"])
+        except Exception as e:
+            self.log(f"[WARNING] Could not load config.yml: {e}")
+
+    def save_config(self):
+        """Save SMTP settings from GUI fields to config.yml."""
+        data = {
+            "smtp": {
+                "server": self.smtp_server_var.get(),
+                "port": int(self.smtp_port_var.get() or 587),
+                "from_address": self.smtp_from_var.get(),
+                "username": self.smtp_username_var.get(),
+                "password": self.smtp_password_var.get(),
+            }
+        }
+        try:
+            CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+            CONFIG_FILE.write_text(
+                yaml.dump(data, default_flow_style=False, allow_unicode=True),
+                encoding="utf-8",
+            )
+            messagebox.showinfo("Saved", f"Configuration saved to:\n{CONFIG_FILE}")
+        except Exception as e:
+            messagebox.showerror("Error", f"Could not save configuration:\n{e}")
 
     def load_initial_data(self):
         """Load data on startup"""
@@ -3297,10 +3358,14 @@ TOP 10 MOST ENGAGED COMPANIES:
 
     def send_emails_thread(self):
         """Background thread for sending emails - works directly from PDF reports"""
-        # Initialize COM for this thread (required for Outlook COM automation)
-        import pythoncom
+        # Initialize COM for this thread (Windows only — no-op on Linux/macOS)
+        try:
+            import pythoncom
 
-        pythoncom.CoInitialize()
+            pythoncom.CoInitialize()
+            _com_initialized = True
+        except ImportError:
+            _com_initialized = False
 
         try:
             self.log_email("[START] Starting email distribution...")
@@ -3318,8 +3383,10 @@ TOP 10 MOST ENGAGED COMPANIES:
 
             self._send_emails_impl()
         finally:
-            # Uninitialize COM when done
-            pythoncom.CoUninitialize()
+            if _com_initialized:
+                import pythoncom
+
+                pythoncom.CoUninitialize()
 
     def _send_emails_impl(self):
         """Implementation of email sending - separated for COM initialization"""
@@ -3702,6 +3769,9 @@ TOP 10 MOST ENGAGED COMPANIES:
                 else:
                     self.log_email(f"  Test mode: NOT updating CSV")
 
+                # Always update email tracker
+                self.email_tracker.mark_sent(company, person)
+
                 sent_count += 1
                 self.log_email(f"  [OK] SUCCESS: Email sent!")
 
@@ -3716,6 +3786,9 @@ TOP 10 MOST ENGAGED COMPANIES:
 
                 self.log_email(f"  Full error:\n{traceback.format_exc()}")
 
+                # Always update email tracker on failure
+                self.email_tracker.mark_failed(company, person)
+
             # Update progress
             current_idx = idx + 1
 
@@ -3727,9 +3800,8 @@ TOP 10 MOST ENGAGED COMPANIES:
 
             self.root.after(0, update_progress)
 
-            # Update email status display after EVERY email (so you see it change in real-time)
-            if not test_mode:  # Only if we're actually updating the CSV
-                self.root.after(0, self.update_email_status_display)
+            # Update email status display after every email
+            self.root.after(0, self.update_email_status_display)
 
         # Final updates
         def finalize():

@@ -1,4 +1,5 @@
 import os
+import sys
 import pandas as pd
 from datetime import datetime
 from pathlib import Path
@@ -9,19 +10,53 @@ from email.mime.text import MIMEText
 from email.mime.base import MIMEBase
 from email import encoders
 
+try:
+    import yaml
+
+    _HAS_YAML = True
+except ImportError:
+    _HAS_YAML = False
+
+# ---------------------------------------------------------------------------
+# Path resolution — same strategy as clean_data.py
+# ---------------------------------------------------------------------------
+if getattr(sys, "frozen", False):
+    if sys.platform == "win32":
+        _user_base = (
+            Path(os.environ.get("APPDATA", str(Path.home()))) / "ResilienceScan"
+        )
+    else:
+        _user_base = Path.home() / ".local" / "share" / "resiliencescan"
+else:
+    _user_base = Path(__file__).resolve().parent
+
+_CONFIG_FILE = _user_base / "config.yml"
+
 # [OK] CONFIGURATION
-CSV_PATH = "data/cleaned_master.csv"
-REPORTS_FOLDER = "reports"
+CSV_PATH = str(_user_base / "data" / "cleaned_master.csv")
+REPORTS_FOLDER = str(_user_base / "reports")
 TEST_MODE = True
 TEST_EMAIL = "cg.verhoef@windesheim.nl"  # <- Change this to your address
 
-# SMTP Configuration (Outlook 365)
-# NOTE: SMTP allows setting custom From address, Outlook COM does not
+# SMTP defaults (overridden by config.yml if present)
 SMTP_SERVER = "smtp.office365.com"
 SMTP_PORT = 587
-SMTP_FROM = "info@resiliencescan.org"  # <- Sender email address
-SMTP_USERNAME = ""  # <- Login username (may differ from FROM address)
-SMTP_PASSWORD = ""  # <- Your password
+SMTP_FROM = "info@resiliencescan.org"
+SMTP_USERNAME = ""
+SMTP_PASSWORD = ""
+
+# Load SMTP settings from config.yml (if present)
+if _HAS_YAML and _CONFIG_FILE.exists():
+    try:
+        _cfg = yaml.safe_load(_CONFIG_FILE.read_text(encoding="utf-8")) or {}
+        _smtp = _cfg.get("smtp", {})
+        SMTP_SERVER = _smtp.get("server", SMTP_SERVER)
+        SMTP_PORT = int(_smtp.get("port", SMTP_PORT))
+        SMTP_FROM = _smtp.get("from_address", SMTP_FROM)
+        SMTP_USERNAME = _smtp.get("username", SMTP_USERNAME)
+        SMTP_PASSWORD = _smtp.get("password", SMTP_PASSWORD)
+    except Exception as _e:
+        print(f"[WARNING] Could not load config.yml: {_e}")
 
 # IMPORTANT: When using Outlook COM (win32com.client), the system will try
 # accounts in priority order:
