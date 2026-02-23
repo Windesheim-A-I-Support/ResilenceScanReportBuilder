@@ -67,6 +67,52 @@ def test_nfpm_config_valid():
     assert len(config["contents"]) > 0
 
 
+def test_convert_data_functional(tmp_path, monkeypatch):
+    """convert_and_save() reads an Excel file and produces cleaned_master.csv."""
+    import openpyxl
+    import pandas as pd
+
+    import convert_data
+
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    monkeypatch.setattr(convert_data, "DATA_DIR", data_dir)
+    monkeypatch.setattr(convert_data, "OUTPUT_PATH", data_dir / "cleaned_master.csv")
+
+    # Build a minimal Excel file in the real format (one metadata row + header)
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "MasterData"
+    ws.append(["Metadata row", "Updating: READY"])  # row 1: metadata (skipped)
+    ws.append(["SubmitDate", "ReportSent", "Name:", "Company name:", "E-mail address"])
+    ws.append(["2023-01-01", False, "Jan Test", "Acme Corp", "jan@example.com"])
+    wb.save(data_dir / "test.xlsx")
+
+    result = convert_data.convert_and_save()
+    assert result is True
+
+    out = data_dir / "cleaned_master.csv"
+    assert out.exists()
+    df = pd.read_csv(out)
+    assert "company_name" in df.columns
+    assert "email_address" in df.columns
+    assert df["company_name"].iloc[0] == "Acme Corp"
+    assert df["email_address"].iloc[0] == "jan@example.com"
+
+
+def test_convert_data_no_excel(tmp_path, monkeypatch):
+    """convert_and_save() returns False when no Excel file is present."""
+    import convert_data
+
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    monkeypatch.setattr(convert_data, "DATA_DIR", data_dir)
+    monkeypatch.setattr(convert_data, "OUTPUT_PATH", data_dir / "cleaned_master.csv")
+
+    result = convert_data.convert_and_save()
+    assert result is False
+
+
 def test_desktop_file_exists():
     """Desktop template must exist with required keys."""
     desktop = ROOT / "packaging" / "template.desktop"
