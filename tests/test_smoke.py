@@ -25,12 +25,16 @@ def test_stub_modules_importable():
 
 
 def test_email_tracker_interface():
-    """EmailTracker stub should implement the expected interface."""
+    """EmailTracker should implement the expected interface."""
     from email_tracker import EmailTracker
 
     tracker = EmailTracker()
     stats = tracker.get_statistics()
-    assert stats == {"total": 0, "sent": 0, "pending": 0, "failed": 0}
+    # Structure check — exact counts depend on local data state
+    assert set(stats.keys()) == {"total", "sent", "pending", "failed"}
+    assert all(isinstance(v, int) for v in stats.values())
+    assert stats["total"] == stats["sent"] + stats["pending"] + stats["failed"]
+
     imported, skipped = tracker.import_from_csv("/nonexistent.csv")
     assert imported == 0
     assert skipped == 0

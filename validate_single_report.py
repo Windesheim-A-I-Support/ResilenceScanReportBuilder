@@ -44,7 +44,12 @@ def extract_scores_from_text(text):
     internal_mu_pattern = r"Internal\s+Resilience[^\d]*[μµ]=\s*(\d+\.?\d*)"
     downstream_mu_pattern = r"Downstream\s+Resilience[^\d]*[μµ]=\s*(\d+\.?\d*)"
 
-    # Pattern 4: Overall SCRES
+    # Pattern 4: "Upstream Resilience\n(.=3.0)" — μ rendered as "." by PyPDF2
+    upstream_dot_pattern = r"Upstream\s+Resilience\s*\(\.=\s*(\d+\.?\d*)\)"
+    internal_dot_pattern = r"Internal\s+Resilience\s*\(\.=\s*(\d+\.?\d*)\)"
+    downstream_dot_pattern = r"Downstream\s+Resilience\s*\(\.=\s*(\d+\.?\d*)\)"
+
+    # Pattern 5: Overall SCRES
     overall_pattern = r"Overall\s+SCRES[:\s]*(\d+\.?\d*)"
 
     # Try v2 template patterns first
@@ -52,10 +57,15 @@ def extract_scores_from_text(text):
     in_match = re.search(in_pattern, text, re.IGNORECASE)
     do_match = re.search(do_pattern, text, re.IGNORECASE)
 
-    # Try μ= patterns (current template)
+    # Try μ= patterns (current template, μ intact)
     upstream_mu_match = re.search(upstream_mu_pattern, text, re.IGNORECASE)
     internal_mu_match = re.search(internal_mu_pattern, text, re.IGNORECASE)
     downstream_mu_match = re.search(downstream_mu_pattern, text, re.IGNORECASE)
+
+    # Try dot= patterns (μ extracted as "." by PyPDF2)
+    upstream_dot_match = re.search(upstream_dot_pattern, text, re.IGNORECASE)
+    internal_dot_match = re.search(internal_dot_pattern, text, re.IGNORECASE)
+    downstream_dot_match = re.search(downstream_dot_pattern, text, re.IGNORECASE)
 
     # Try avg: patterns
     upstream_match = re.search(upstream_avg_pattern, text, re.IGNORECASE)
@@ -64,11 +74,13 @@ def extract_scores_from_text(text):
 
     overall_match = re.search(overall_pattern, text, re.IGNORECASE)
 
-    # Use whichever pattern matched (priority: UP > μ= > avg:)
+    # Use whichever pattern matched (priority: UP > μ= > .= > avg:)
     if up_match:
         scores["up_avg"] = float(up_match.group(1))
     elif upstream_mu_match:
         scores["up_avg"] = float(upstream_mu_match.group(1))
+    elif upstream_dot_match:
+        scores["up_avg"] = float(upstream_dot_match.group(1))
     elif upstream_match:
         scores["up_avg"] = float(upstream_match.group(1))
 
@@ -76,6 +88,8 @@ def extract_scores_from_text(text):
         scores["in_avg"] = float(in_match.group(1))
     elif internal_mu_match:
         scores["in_avg"] = float(internal_mu_match.group(1))
+    elif internal_dot_match:
+        scores["in_avg"] = float(internal_dot_match.group(1))
     elif internal_match:
         scores["in_avg"] = float(internal_match.group(1))
 
@@ -83,6 +97,8 @@ def extract_scores_from_text(text):
         scores["do_avg"] = float(do_match.group(1))
     elif downstream_mu_match:
         scores["do_avg"] = float(downstream_mu_match.group(1))
+    elif downstream_dot_match:
+        scores["do_avg"] = float(downstream_dot_match.group(1))
     elif downstream_match:
         scores["do_avg"] = float(downstream_match.group(1))
 
