@@ -314,12 +314,9 @@ jobs:
           # Install rpm tools (needed for .rpm packaging)
           sudo apt-get install -y --no-install-recommends rpm
 
-          # Install nfpm — resolve latest Linux x86_64 tarball via GitHub API
-          NFPM_URL=$(curl -s https://api.github.com/repos/goreleaser/nfpm/releases/latest \
-            | jq -r '.assets[] | select(.name | contains("Linux_x86_64.tar.gz")) | .browser_download_url')
-          wget -q "$NFPM_URL" -O nfpm.tar.gz
-          tar -xzf nfpm.tar.gz nfpm
-          chmod +x nfpm
+          # Install nfpm via go install (Go is pre-installed on ubuntu-latest)
+          go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
+          export PATH="$PATH:$(go env GOPATH)/bin"
 
           # Make postinst executable (nfpm requires it)
           chmod +x packaging/postinst.sh
@@ -328,13 +325,13 @@ jobs:
           export APP_NAME
 
           # Build .deb
-          ./nfpm package \
+          nfpm package \
             --config nfpm.yaml \
             --packager deb \
             --target "dist/${REPO_NAME}-${APP_VERSION}-amd64.deb"
 
           # Build .rpm
-          ./nfpm package \
+          nfpm package \
             --config nfpm.yaml \
             --packager rpm \
             --target "dist/${REPO_NAME}-${APP_VERSION}-amd64.rpm"
