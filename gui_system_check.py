@@ -41,6 +41,7 @@ _R_PACKAGES = [
 # that was running at login, *before* the setup script updated the machine PATH.
 # ---------------------------------------------------------------------------
 
+
 def _refresh_windows_path() -> None:
     """Re-read machine + user PATH from the Windows registry and patch os.environ.
 
@@ -53,6 +54,7 @@ def _refresh_windows_path() -> None:
         return
     try:
         import winreg  # noqa: PLC0415
+
         with winreg.OpenKey(
             winreg.HKEY_LOCAL_MACHINE,
             r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment",
@@ -115,8 +117,12 @@ def _find_tlmgr() -> str | None:
             r"C:\Windows\System32\config\systemprofile\AppData\Roaming\TinyTeX\bin\windows\tlmgr.bat",
             r"C:\Windows\System32\config\systemprofile\AppData\Local\TinyTeX\bin\windows\tlmgr.bat",
             # Current user profiles
-            os.path.join(os.environ.get("APPDATA", ""), r"TinyTeX\bin\windows\tlmgr.bat"),
-            os.path.join(os.environ.get("LOCALAPPDATA", ""), r"TinyTeX\bin\windows\tlmgr.bat"),
+            os.path.join(
+                os.environ.get("APPDATA", ""), r"TinyTeX\bin\windows\tlmgr.bat"
+            ),
+            os.path.join(
+                os.environ.get("LOCALAPPDATA", ""), r"TinyTeX\bin\windows\tlmgr.bat"
+            ),
         ]
         for c in candidates:
             if c and os.path.exists(c):
@@ -136,6 +142,7 @@ def _r_lib_path() -> Path | None:
 # ---------------------------------------------------------------------------
 # Internal runner
 # ---------------------------------------------------------------------------
+
 
 def _run(cmd: list, env: dict | None = None) -> tuple:
     """Run a command and return (returncode, combined stdout+stderr)."""
