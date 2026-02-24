@@ -93,6 +93,7 @@ class ResilienceScanGUI:
         # Setup GUI
         self.setup_ui()
         self.load_config()
+        self._startup_guard()
         self.load_initial_data()
 
     def setup_ui(self):
@@ -1036,6 +1037,27 @@ class ResilienceScanGUI:
         self.update_time()
 
     # ==================== Data Methods ====================
+
+    def _startup_guard(self):
+        """Check that R, Quarto, and TinyTeX are present; show a blocking
+        warning dialog if any critical component is missing."""
+        checker = SystemChecker()
+        result = checker.check_all()
+
+        critical = ["R", "quarto", "tinytex"]
+        missing = [k for k in critical if not result.get(k, {}).get("ok")]
+
+        if missing:
+            names = {"R": "R", "quarto": "Quarto", "tinytex": "TinyTeX (tlmgr)"}
+            missing_str = "\n".join(f"  • {names[k]}" for k in missing)
+            messagebox.showwarning(
+                "Missing Components",
+                "The following required components were not found on PATH:\n\n"
+                f"{missing_str}\n\n"
+                "The installation may be incomplete.  Report generation will\n"
+                "not work until these are installed.\n\n"
+                "You can continue, but generating PDFs will fail.",
+            )
 
     def load_config(self):
         """Load SMTP settings from config.yml into GUI fields."""
@@ -2634,7 +2656,8 @@ TOP 10 MOST ENGAGED COMPANIES:
         try:
             # Run system check
             checker = SystemChecker(ROOT_DIR)
-            all_ok = checker.check_all()
+            check_result = checker.check_all()
+            all_ok = all(v.get("ok", False) for v in check_result.values())
 
             # Clear stats text and show results
             self.stats_text.delete("1.0", tk.END)
