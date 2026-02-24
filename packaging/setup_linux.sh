@@ -5,6 +5,9 @@
 
 set -e
 
+export DEBIAN_FRONTEND=noninteractive
+export TZ=UTC
+
 QUARTO_VERSION="1.6.39"
 INSTALL_DIR="/opt/ResilenceScanReportBuilder"
 R_LIB="$INSTALL_DIR/r-library"
