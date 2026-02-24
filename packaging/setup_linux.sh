@@ -60,14 +60,16 @@ fi
 if ! command -v tlmgr &>/dev/null; then
     log "Installing TinyTeX via Quarto..."
     quarto install tinytex --no-prompt
-    # Symlink TinyTeX binaries into /usr/local/bin so they are on PATH for all users
-    TINYTEX_BIN=$(find /root /home -name tlmgr -type f 2>/dev/null | head -1)
-    if [ -n "$TINYTEX_BIN" ]; then
-        TINYTEX_DIR=$(dirname "$TINYTEX_BIN")
+    # Symlink TinyTeX binaries into /usr/local/bin so they are on PATH for all users.
+    # quarto install tinytex installs to ~/.TinyTeX; use $HOME so it works for any user.
+    TINYTEX_DIR="${HOME}/.TinyTeX/bin/x86_64-linux"
+    if [ -d "$TINYTEX_DIR" ]; then
         log "Symlinking TinyTeX binaries from $TINYTEX_DIR to /usr/local/bin"
         for bin in tlmgr pdflatex xelatex lualatex luatex tex latex; do
-            [ -f "$TINYTEX_DIR/$bin" ] && ln -sf "$TINYTEX_DIR/$bin" "/usr/local/bin/$bin" || true
+            [ -e "$TINYTEX_DIR/$bin" ] && ln -sf "$TINYTEX_DIR/$bin" "/usr/local/bin/$bin" || true
         done
+    else
+        log "WARNING: TinyTeX dir not found at $TINYTEX_DIR"
     fi
 else
     log "TinyTeX already present — skipping."
