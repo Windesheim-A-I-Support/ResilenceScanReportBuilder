@@ -314,13 +314,9 @@ jobs:
           # Install rpm tools (needed for .rpm packaging)
           sudo apt-get install -y --no-install-recommends rpm
 
-          # Install nfpm — resolve latest release URL via GitHub API
+          # Install nfpm — resolve latest Linux x86_64 tarball via GitHub API
           NFPM_URL=$(curl -s https://api.github.com/repos/goreleaser/nfpm/releases/latest \
-            | python3 -c "
-import json, sys
-assets = json.load(sys.stdin)['assets']
-url = next(a['browser_download_url'] for a in assets if 'Linux_x86_64.tar.gz' in a['name'])
-print(url)")
+            | jq -r '.assets[] | select(.name | contains("Linux_x86_64.tar.gz")) | .browser_download_url')
           wget -q "$NFPM_URL" -O nfpm.tar.gz
           tar -xzf nfpm.tar.gz nfpm
           chmod +x nfpm
