@@ -206,4 +206,19 @@ Fixes applied to `packaging/setup_dependencies.ps1`:
 - [x] R path: add `$R_LIB_R = $R_LIB.Replace('\', '/')` and use `$R_LIB_R` in the R `-e` string
 - [x] LaTeX list: `afterpage`→`preprint`, `graphicx`→`graphics`; remove `array`, `longtable`, `tikz` (covered by `tools` and `pgf` already in list)
 - [x] Pre-create `texmf-dist\tex\latex\capt-of` (and `preprint`) before running `tlmgr install`
-- **Gate:** Fresh Windows VM (no prior R/LaTeX): all 19 R packages install without error + `quarto render ResilienceReport.qmd` produces a PDF
+- [x] Startup guard false-negative fixed (`gui_system_check.py`): refresh PATH from Windows registry + fallback hardcoded paths for R/Quarto/TinyTeX + R_LIBS injection for bundled r-library (v0.20.13)
+- **Gate:** Fresh Windows VM (no prior R/LaTeX): startup guard passes + all 19 R packages install without error + `quarto render ResilienceReport.qmd` produces a PDF
+
+### MILESTONE 10 — Fix report generation in the installed app ⏳ TODO
+Two bugs found during real Windows testing (observed after M9 installer fixes):
+
+**Bug 1 — Data tab rejects .xlsx files**
+- The Data tab only accepts `.csv` files; `.xlsx` is not in the file-type filter.
+- Original design: user drops in `.xlsx` (or `.xml`), the app converts it to `cleaned_master.csv` via `convert_data.py`, then the pipeline runs on that CSV.
+- Fix: restore `.xlsx` (and optionally `.xml`) as accepted input types in the Data tab file picker; wire the Convert button so it runs `convert_data.py` before any pipeline step.
+
+**Bug 2 — `quarto render` fails with "No valid input files passed to render"**
+- Error logged: `ERROR: No valid input files passed to render` for every row.
+- Root cause: `ResilienceReport.qmd` (and its companion assets — `_extensions/`, `img/`, `references.bib`, `QTDublinIrish.otf`, `.tex` includes) are not being found by the installed app.  PyInstaller bundles them into `_internal/` but the quarto subprocess is invoked with a working directory or `--input` path that does not resolve to the bundled `.qmd`.
+- Fix: ensure `generate_all_reports.py` / `generate_single_report.py` resolve `ResilienceReport.qmd` relative to the correct root (frozen: `Path(sys.executable).parent` or `sys._MEIPASS`; dev: repo root) and pass the absolute path to `quarto render`.  Verify all companion assets are included in the PyInstaller `--add-data` flags in `ci.yml`.
+- **Gate:** Installed app generates a visually correct PDF from a real CSV without errors.
