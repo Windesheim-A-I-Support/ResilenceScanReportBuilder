@@ -1,0 +1,151 @@
+name: End-to-End Pipeline Test
+
+# Runs the full convert → clean → generate → validate pipeline against the
+# anonymised sample fixture (tests/fixtures/sample_anonymized.xlsx).
+# Triggered manually so it doesn't slow down every push.
+# Promote to push/main once it reliably passes on both platforms.
+
+on:
+  workflow_dispatch:
+  # Uncomment to run automatically on release tags once stable:
+  # push:
+  #   tags: ["v*"]
+
+jobs:
+  e2e:
+    name: E2E (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            r_url: "https://cloud.r-project.org/bin/linux/ubuntu"
+            quarto_url: "https://github.com/quarto-dev/quarto-cli/releases/download/v1.6.39/quarto-1.6.39-linux-amd64.deb"
+          - os: windows-latest
+            quarto_url: "https://github.com/quarto-dev/quarto-cli/releases/download/v1.6.39/quarto-1.6.39-win.msi"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # ── Python ───────────────────────────────────────────────────────────────
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest ruff pyyaml
+
+      - name: Install system libraries (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            python3-tk tk-dev libcurl4-openssl-dev libssl-dev libxml2-dev \
+            libfontconfig1-dev libharfbuzz-dev libfribidi-dev \
+            libfreetype6-dev libpng-dev libtiff5-dev libjpeg-dev
+
+      # ── R ────────────────────────────────────────────────────────────────────
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: "4.3.2"
+
+      - name: Install R packages
+        shell: Rscript {0}
+        run: |
+          pkgs <- c(
+            "readr", "dplyr", "stringr", "tidyr", "ggplot2", "knitr",
+            "fmsb", "scales", "viridis", "patchwork", "RColorBrewer",
+            "gridExtra", "png", "lubridate", "kableExtra", "rmarkdown",
+            "jsonlite", "ggrepel", "cowplot"
+          )
+          install.packages(pkgs, repos = "https://cloud.r-project.org", quiet = TRUE)
+
+      # ── Quarto ───────────────────────────────────────────────────────────────
+      - name: Install Quarto (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          curl -fsSL "${{ matrix.quarto_url }}" -o quarto.deb
+          sudo dpkg -i quarto.deb
+          quarto --version
+
+      - name: Install Quarto (Windows)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          Invoke-WebRequest "${{ matrix.quarto_url }}" -OutFile quarto.msi -UseBasicParsing
+          Start-Process msiexec -ArgumentList "/i","quarto.msi","/qn","/norestart" -Wait
+          # Refresh PATH so quarto is found
+          $env:PATH = [System.Environment]::GetEnvironmentVariable("PATH","Machine") + ";" +
+                      [System.Environment]::GetEnvironmentVariable("PATH","User")
+          quarto --version
+
+      # ── TinyTeX ──────────────────────────────────────────────────────────────
+      - name: Install TinyTeX
+        run: quarto install tinytex --no-prompt
+
+      - name: Install required LaTeX packages
+        shell: bash
+        run: |
+          tlmgr install \
+            pgf xcolor colortbl booktabs multirow float wrapfig pdflscape \
+            geometry preprint graphics tabu threeparttable threeparttablex \
+            ulem makecell environ trimspaces caption hyperref setspace \
+            fancyhdr microtype lm needspace varwidth mdwtools xstring tools
+
+      - name: Write capt-of stub (avoids tar extraction failure)
+        shell: bash
+        run: |
+          TEXMF=$(kpsewhich -var-value TEXMFHOME 2>/dev/null || echo "$HOME/texmf")
+          DIR="$TEXMF/tex/latex/capt-of"
+          mkdir -p "$DIR"
+          cat > "$DIR/capt-of.sty" <<'EOF'
+          \NeedsTeXFormat{LaTeX2e}
+          \ProvidesPackage{capt-of}[2011/08/12 v0.2 non-floating captions (stub)]
+          \newcommand\captionof[2][\@captype]{\def\@captype{#1}\caption{#2}}
+          EOF
+          mktexlsr "$TEXMF" 2>/dev/null || true
+
+      # ── Pipeline run ─────────────────────────────────────────────────────────
+      - name: Prepare data directory with fixture
+        shell: bash
+        run: |
+          mkdir -p data
+          cp tests/fixtures/sample_anonymized.xlsx data/
+
+      - name: Convert Excel → CSV
+        run: python convert_data.py
+
+      - name: Clean CSV
+        run: python clean_data.py
+
+      - name: Generate reports
+        shell: bash
+        run: |
+          mkdir -p reports
+          python generate_all_reports.py
+
+      - name: Count generated PDFs
+        shell: bash
+        run: |
+          COUNT=$(find reports -name "*.pdf" | wc -l)
+          echo "PDFs generated: $COUNT"
+          if [ "$COUNT" -lt 1 ]; then
+            echo "ERROR: No PDFs were generated"
+            exit 1
+          fi
+
+      - name: Validate reports
+        run: python validate_reports.py
+
+      - name: Upload PDFs as artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-reports-${{ matrix.os }}
+          path: reports/*.pdf
+          if-no-files-found: warn

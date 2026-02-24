@@ -1,6 +1,24 @@
 # ResilienceScan Report Builder
 
+[![Latest Release](https://img.shields.io/github/v/release/Windesheim-A-I-Support/ResilenceScanReportBuilder?label=latest)](https://github.com/Windesheim-A-I-Support/ResilenceScanReportBuilder/releases/latest)
+
 A Windows/Linux desktop application that generates personalised PDF resilience reports for survey respondents and distributes them by email.  Built with Python (Tkinter GUI) + R + Quarto + TinyTeX.
+
+---
+
+## Downloads
+
+<!-- DOWNLOAD_LINKS_START -->
+| Platform | Download |
+|----------|----------|
+| Windows | [Windows Installer (.exe)](https://github.com/Windesheim-A-I-Support/ResilenceScanReportBuilder/releases/latest) |
+| Windows | [Portable ZIP](https://github.com/Windesheim-A-I-Support/ResilenceScanReportBuilder/releases/latest) |
+| Linux | [.deb (Ubuntu/Debian)](https://github.com/Windesheim-A-I-Support/ResilenceScanReportBuilder/releases/latest) |
+| Linux | [AppImage](https://github.com/Windesheim-A-I-Support/ResilenceScanReportBuilder/releases/latest) |
+| Linux | [Tarball (.tar.gz)](https://github.com/Windesheim-A-I-Support/ResilenceScanReportBuilder/releases/latest) |
+<!-- DOWNLOAD_LINKS_END -->
+
+> Direct download links are updated automatically after each release by CI.  If the links above point to the releases page rather than a specific file, a new release is in progress.
 
 ---
 

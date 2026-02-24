@@ -38,12 +38,41 @@ from gui_system_check import SystemChecker
 # Import dependency manager
 from dependency_manager import DependencyManager
 
-# Configuration
-ROOT_DIR = Path(__file__).resolve().parents[1]  # repo root (one level up from app/)
-DATA_FILE = ROOT_DIR / "data" / "cleaned_master.csv"
-REPORTS_DIR = ROOT_DIR / "reports"
+
+# ---------------------------------------------------------------------------
+# Path resolution — split into asset root (QMD + images, read-only) and
+# data root (CSV, reports, logs — must be user-writable).
+# ---------------------------------------------------------------------------
+def _asset_root() -> Path:
+    """Directory that contains ResilienceReport.qmd and companion assets.
+
+    Dev:    repo root (one level up from app/)
+    Frozen: sys._MEIPASS == _internal/ where --add-data extracts files
+    """
+    if getattr(sys, "frozen", False):
+        return Path(sys._MEIPASS)
+    return Path(__file__).resolve().parents[1]
+
+
+def _data_root() -> Path:
+    """User-writable directory for data/, reports/, and logs.
+
+    Dev:    repo root (same as asset root, data files live alongside scripts)
+    Frozen: APPDATA/ResilienceScan (Windows) or ~/.local/share/resiliencescan (Linux)
+    """
+    if getattr(sys, "frozen", False):
+        if sys.platform == "win32":
+            return Path(os.environ.get("APPDATA", str(Path.home()))) / "ResilienceScan"
+        return Path.home() / ".local" / "share" / "resiliencescan"
+    return Path(__file__).resolve().parents[1]
+
+
+ROOT_DIR = _asset_root()  # quarto cwd + template — points at QMD assets
+_DATA_ROOT = _data_root()  # data/, reports/, logs — always writable
+DATA_FILE = _DATA_ROOT / "data" / "cleaned_master.csv"
+REPORTS_DIR = _DATA_ROOT / "reports"
 TEMPLATE = ROOT_DIR / "ResilienceReport.qmd"
-LOG_FILE = ROOT_DIR / "gui_log.txt"
+LOG_FILE = _DATA_ROOT / "gui_log.txt"
 
 
 def _config_path() -> Path:
@@ -107,6 +136,14 @@ class ResilienceScanGUI:
         self.load_config()
         self._startup_guard()
         self.load_initial_data()
+
+        # Check for updates in the background — non-blocking, fails silently
+        try:
+            from update_checker import start_background_check
+
+            start_background_check(self._on_update_available, tk_root=self.root)
+        except Exception:
+            pass
 
     def setup_ui(self):
         """Create the main UI layout"""
@@ -1040,13 +1077,39 @@ class ResilienceScanGUI:
         self.status_label = ttk.Label(status_frame, text="Ready", font=("Arial", 9))
         self.status_label.grid(row=0, column=0, sticky=tk.W, padx=5)
 
-        self.status_time_label = ttk.Label(status_frame, text="", font=("Arial", 9))
-        self.status_time_label.grid(row=0, column=1, sticky=tk.E, padx=5)
+        # Update notification label — hidden until an update is found
+        self._update_label = tk.Label(
+            status_frame,
+            text="",
+            font=("Arial", 9),
+            fg="#0066cc",
+            cursor="hand2",
+            bg=status_frame.cget("background"),
+        )
+        self._update_label.grid(row=0, column=1, sticky=tk.W, padx=10)
 
-        status_frame.columnconfigure(1, weight=1)
+        self.status_time_label = ttk.Label(status_frame, text="", font=("Arial", 9))
+        self.status_time_label.grid(row=0, column=2, sticky=tk.E, padx=5)
+
+        status_frame.columnconfigure(2, weight=1)
 
         # Update time every second
         self.update_time()
+
+    def _on_update_available(self, info):
+        """Called (on the main thread) when the update check completes."""
+        if not info:
+            return
+        version = info.get("version", "")
+        url = info.get("url", "")
+        if not version or not url:
+            return
+        text = f"⬆ Update available: v{version} — Download"
+        self._update_label.config(text=text)
+        self._update_label.bind(
+            "<Button-1>",
+            lambda _e: __import__("webbrowser").open(url),
+        )
 
     # ==================== Data Methods ====================
 
@@ -1161,34 +1224,70 @@ class ResilienceScanGUI:
             messagebox.showerror("Error", f"Failed to load data:\n{e}")
 
     def load_data_file(self):
-        """Browse and load a different data file"""
+        """Browse and load a data file (.xlsx, .xls, or .csv).
+
+        If an Excel file is selected it is copied into the data directory and
+        converted to cleaned_master.csv automatically before loading.
+        """
         filename = filedialog.askopenfilename(
             title="Select Data File",
-            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
-            initialdir=ROOT_DIR / "data",
+            filetypes=[
+                ("Excel files", "*.xlsx *.xls"),
+                ("CSV files", "*.csv"),
+                ("All files", "*.*"),
+            ],
+            initialdir=_DATA_ROOT / "data",
         )
 
-        if filename:
-            try:
-                self.df = pd.read_csv(filename)
-                self.df.columns = self.df.columns.str.lower().str.strip()
+        if not filename:
+            return
 
-                self.data_file_label.config(text=filename)
-                self.stats["total_respondents"] = len(self.df)
-                self.stats["total_companies"] = self.df["company_name"].nunique()
+        path = Path(filename)
+        try:
+            if path.suffix.lower() in (".xlsx", ".xls"):
+                # Copy into the data dir so convert_data can find it, then convert
+                import convert_data
+                import shutil as _shutil
 
-                self.update_stats_display()
-                self.update_data_preview()
-                self.update_stats_text()
-                self.analyze_data_quality()
+                dest_dir = _DATA_ROOT / "data"
+                dest_dir.mkdir(parents=True, exist_ok=True)
+                dest = dest_dir / path.name
+                if dest != path:
+                    _shutil.copy2(str(path), str(dest))
+                self.log(f"[INFO] Excel file copied to data dir: {dest.name}")
+                self.log("[INFO] Converting Excel → CSV …")
 
-                self.log(f"[OK] Data loaded from: {filename}")
-                messagebox.showinfo(
-                    "Success", f"Data loaded successfully!\n{len(self.df)} records"
-                )
-            except Exception as e:
-                self.log(f"[ERROR] Error loading file: {e}")
-                messagebox.showerror("Error", f"Failed to load file:\n{e}")
+                ok = convert_data.convert_and_save()
+                if not ok:
+                    messagebox.showerror(
+                        "Conversion Failed",
+                        "Could not convert the Excel file.\nCheck the log for details.",
+                    )
+                    return
+                self.log("[OK] Conversion complete — loading cleaned_master.csv")
+                csv_path = DATA_FILE
+            else:
+                csv_path = path
+
+            self.df = pd.read_csv(csv_path)
+            self.df.columns = self.df.columns.str.lower().str.strip()
+
+            self.data_file_label.config(text=str(csv_path))
+            self.stats["total_respondents"] = len(self.df)
+            self.stats["total_companies"] = self.df["company_name"].nunique()
+
+            self.update_stats_display()
+            self.update_data_preview()
+            self.update_stats_text()
+            self.analyze_data_quality()
+
+            self.log(f"[OK] Data loaded: {len(self.df)} records from {csv_path.name}")
+            messagebox.showinfo(
+                "Success", f"Data loaded successfully!\n{len(self.df)} records"
+            )
+        except Exception as e:
+            self.log(f"[ERROR] Error loading file: {e}")
+            messagebox.showerror("Error", f"Failed to load file:\n{e}")
 
     def run_convert_data(self):
         """Run the data conversion script to convert Excel files to CSV format"""
@@ -2115,8 +2214,12 @@ TOP 10 MOST ENGAGED COMPANIES:
                     return
 
             # Build quarto command
+            # Use absolute path for --output so the temp PDF lands in the
+            # writable REPORTS_DIR, not in ROOT_DIR which may be read-only
+            # when the app is installed under Program Files / /opt/.
             selected_template = ROOT_DIR / self.template_var.get()
-            temp_output = f"temp_{safe_company}_{safe_person}.pdf"
+            REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+            temp_path = REPORTS_DIR / f"temp_{safe_company}_{safe_person}.pdf"
             cmd = [
                 "quarto",
                 "render",
@@ -2132,7 +2235,7 @@ TOP 10 MOST ENGAGED COMPANIES:
                 "--to",
                 "pdf",
                 "--output",
-                temp_output,
+                str(temp_path),
             ]
 
             self.log_gen(
@@ -2146,7 +2249,6 @@ TOP 10 MOST ENGAGED COMPANIES:
             )
 
             if result.returncode == 0:
-                temp_path = ROOT_DIR / temp_output
                 if temp_path.exists():
                     shutil.move(str(temp_path), str(output_file))
                     self.log_gen(f"[OK] Success: {output_filename}")
@@ -2427,8 +2529,11 @@ TOP 10 MOST ENGAGED COMPANIES:
                     continue
 
                 # Build quarto command using selected template with both company and person
+                # Use absolute path for --output so the temp PDF lands in the
+                # writable REPORTS_DIR, not in ROOT_DIR which may be read-only.
                 selected_template = ROOT_DIR / self.template_var.get()
-                temp_output = f"temp_{safe_company}_{safe_person}.pdf"
+                REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+                temp_path = REPORTS_DIR / f"temp_{safe_company}_{safe_person}.pdf"
                 cmd = [
                     "quarto",
                     "render",
@@ -2444,8 +2549,7 @@ TOP 10 MOST ENGAGED COMPANIES:
                     "--to",
                     "pdf",
                     "--output",
-                    temp_output,
-                    # Removed --quiet to capture error details
+                    str(temp_path),
                 ]
 
                 # Build subprocess environment — inject R_LIBS if frozen so
@@ -2477,7 +2581,6 @@ TOP 10 MOST ENGAGED COMPANIES:
                     if not self.is_generating:
                         self._gen_proc.kill()
                         self._gen_proc.wait()
-                        temp_path = ROOT_DIR / temp_output
                         if temp_path.exists():
                             temp_path.unlink()
                         self._gen_proc = None
@@ -2493,7 +2596,6 @@ TOP 10 MOST ENGAGED COMPANIES:
                     break
 
                 if returncode == 0:
-                    temp_path = ROOT_DIR / temp_output
                     if temp_path.exists():
                         import shutil
 
