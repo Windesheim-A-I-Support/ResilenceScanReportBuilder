@@ -1,67 +1,29 @@
 #!/bin/bash
-# postinst.sh — post-install script for .deb / .rpm packages.
-# Silently installs R, Quarto, TinyTeX and required R packages.
-# Runs as root via dpkg/rpm after the package files are extracted.
+# postinst.sh — post-install hook for .deb packages.
+#
+# dpkg holds its lock while running this script, so we cannot call apt-get
+# directly here.  Instead we launch the real setup script in the background
+# (detached from dpkg's process group) and exit immediately.  By the time
+# apt-get runs inside setup_linux.sh, dpkg will have released the lock.
+#
+# The user can also run setup manually at any time:
+#   sudo /opt/ResilenceScanReportBuilder/setup_linux.sh
 
-set -e
-
-QUARTO_VERSION="1.6.39"
 INSTALL_DIR="/opt/ResilenceScanReportBuilder"
-R_LIB="$INSTALL_DIR/r-library"
+SETUP_SCRIPT="$INSTALL_DIR/setup_linux.sh"
+LOG="/var/log/resilencescan-setup.log"
 
-log() { echo "[SETUP] $1"; }
+chmod +x "$SETUP_SCRIPT" 2>/dev/null || true
 
-# ── R ────────────────────────────────────────────────────────────────────────
-if ! command -v Rscript &>/dev/null; then
-    log "Installing R from CRAN APT repository..."
-    apt-get update -qq
-    apt-get install -y --no-install-recommends software-properties-common dirmngr
-    # Add CRAN signing key and repository
-    wget -qO- https://cloud.r-project.org/bin/linux/ubuntu/marutter_pubkey.asc \
-        | gpg --dearmor -o /usr/share/keyrings/cran.gpg
-    UBUNTU_CODENAME=$(. /etc/os-release && echo "$UBUNTU_CODENAME")
-    echo "deb [signed-by=/usr/share/keyrings/cran.gpg] https://cloud.r-project.org/bin/linux/ubuntu ${UBUNTU_CODENAME:-jammy}-cran40/" \
-        > /etc/apt/sources.list.d/cran.list
-    apt-get update -qq
-    apt-get install -y --no-install-recommends r-base r-base-dev
-else
-    log "R already present — skipping."
-fi
+echo "[SETUP] Installing R, Quarto, TinyTeX and R packages in the background."
+echo "[SETUP] This takes 5–20 minutes. Monitor progress:"
+echo "[SETUP]   sudo tail -f $LOG"
+echo "[SETUP] If anything is missing at first launch, re-run:"
+echo "[SETUP]   sudo $SETUP_SCRIPT"
 
-# ── Quarto ───────────────────────────────────────────────────────────────────
-if ! command -v quarto &>/dev/null; then
-    log "Downloading Quarto $QUARTO_VERSION..."
-    TMP=$(mktemp -d)
-    wget -q -O "$TMP/quarto.deb" \
-        "https://github.com/quarto-dev/quarto-cli/releases/download/v${QUARTO_VERSION}/quarto-${QUARTO_VERSION}-linux-amd64.deb"
-    dpkg -i "$TMP/quarto.deb" || true
-    apt-get install -f -y     # fix any missing dependencies
-    rm -rf "$TMP"
-else
-    log "Quarto already present — skipping."
-fi
+# Detach completely from dpkg's process group so the background job
+# survives dpkg exiting and is immune to SIGHUP.
+nohup bash "$SETUP_SCRIPT" >"$LOG" 2>&1 &
+disown $! 2>/dev/null || true
 
-# ── TinyTeX ──────────────────────────────────────────────────────────────────
-if ! command -v tlmgr &>/dev/null; then
-    log "Installing TinyTeX via Quarto..."
-    quarto install tinytex --no-prompt
-else
-    log "TinyTeX already present — skipping."
-fi
-
-# ── R packages ───────────────────────────────────────────────────────────────
-log "Installing R packages into $R_LIB..."
-mkdir -p "$R_LIB"
-Rscript -e "
-  pkgs <- c(
-    'readr', 'dplyr', 'stringr', 'tidyr', 'ggplot2', 'knitr',
-    'fmsb', 'scales', 'viridis', 'patchwork', 'RColorBrewer',
-    'gridExtra', 'png', 'lubridate', 'kableExtra', 'rmarkdown',
-    'jsonlite', 'ggrepel', 'cowplot'
-  )
-  install.packages(pkgs, lib='$R_LIB', repos='https://cloud.r-project.org', quiet=TRUE)
-"
-# Ensure the R library is readable by all users
-chmod -R a+rX "$R_LIB"
-
-log "Dependency setup complete."
+exit 0

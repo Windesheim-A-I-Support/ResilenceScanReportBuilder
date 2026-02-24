@@ -319,6 +319,8 @@ jobs:
           mkdir -p "${DEB_ROOT}/usr/bin"
           mkdir -p "${DEB_ROOT}/usr/share/applications"
           cp -r "dist/${REPO_NAME}/." "${DEB_ROOT}/opt/${REPO_NAME}/"
+          cp packaging/setup_linux.sh "${DEB_ROOT}/opt/${REPO_NAME}/setup_linux.sh"
+          chmod 755 "${DEB_ROOT}/opt/${REPO_NAME}/setup_linux.sh"
           ln -s "/opt/${REPO_NAME}/${REPO_NAME}" "${DEB_ROOT}/usr/bin/${REPO_NAME}"
           cp "packaging/${REPO_NAME}.desktop" "${DEB_ROOT}/usr/share/applications/"
           printf 'Package: %s\nVersion: %s\nArchitecture: amd64\nMaintainer: Windesheim <info@windesheim.nl>\nDescription: ResilienceScan Control Center\n' \
