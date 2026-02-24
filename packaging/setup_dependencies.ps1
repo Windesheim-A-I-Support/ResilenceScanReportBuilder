@@ -64,7 +64,7 @@ $LATEX_PACKAGES = @(
     "pgf", "xcolor", "colortbl", "booktabs", "multirow",
     "float", "wrapfig", "pdflscape", "geometry", "preprint", "graphics",
     "tabu", "threeparttable", "threeparttablex", "ulem", "makecell",
-    "environ", "trimspaces", "capt-of", "caption", "hyperref",
+    "environ", "trimspaces", "caption", "hyperref",
     "setspace", "fancyhdr", "microtype", "lm", "needspace", "varwidth",
     "mdwtools", "xstring", "tools"
 )
@@ -269,6 +269,27 @@ if ($tlmgr) {
         Add-Content -Path $ERROR_LOG -Value "[LaTeX packages] $errMsg" -Encoding UTF8
         Add-Content -Path $ERROR_LOG -Value $errStk                    -Encoding UTF8
     }
+
+    # capt-of: tlmgr's bundled tar.exe fails to extract capt-of.tar on fresh
+    # TinyTeX because the target directory does not exist and tar cannot create it.
+    # Workaround: write a minimal capt-of.sty stub directly, then refresh the
+    # filename database with mktexlsr so LaTeX can find it.
+    $captOfDir  = Join-Path $tinyTexRoot "texmf-dist\tex\latex\capt-of"
+    $captOfFile = Join-Path $captOfDir "capt-of.sty"
+    if (-not (Test-Path $captOfFile)) {
+        New-Item -ItemType Directory -Force -Path $captOfDir | Out-Null
+        $captOfStub = @'
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{capt-of}[2011/08/12 v0.2 non-floating captions (stub)]
+\newcommand\captionof[2][\@captype]{\def\@captype{#1}\caption{#2}}
+'@
+        Set-Content -Path $captOfFile -Value $captOfStub -Encoding UTF8
+        Write-Log "Written capt-of.sty stub to: $captOfFile"
+        & mktexlsr 2>&1 | ForEach-Object { Write-Log "  [mktexlsr] $_" }
+        Write-Log "mktexlsr complete."
+    } else {
+        Write-Log "capt-of.sty already present - skipping stub."
+    }
 } else {
     Write-Log "WARNING: tlmgr not found - LaTeX packages skipped."
 }
@@ -280,7 +301,7 @@ if ($rscript) {
     New-Item -ItemType Directory -Force -Path $R_LIB | Out-Null
     # Grant Users read access to the R library so the app can load packages
     icacls $R_LIB /grant "BUILTIN\Users:(OI)(CI)RX" /T /Q 2>&1 | Out-Null
-    $pkgList = ($R_PACKAGES | ForEach-Object { '"' + $_ + '"' }) -join ", "
+    $pkgList = ($R_PACKAGES | ForEach-Object { "'" + $_ + "'" }) -join ", "
     # R requires forward slashes in paths — backslashes in Windows paths cause
     # "unrecognized escape" errors (e.g. \P in \Program Files is not a valid escape).
     $R_LIB_R = $R_LIB.Replace('\', '/')
