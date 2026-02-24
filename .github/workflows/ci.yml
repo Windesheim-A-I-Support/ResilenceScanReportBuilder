@@ -308,35 +308,25 @@ jobs:
           ARCH=x86_64 ./appimagetool-x86_64.AppImage --appimage-extract-and-run \
             AppDir "dist/${REPO_NAME}-${APP_VERSION}-x86_64.AppImage"
 
-      - name: Install nfpm
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get install -y --no-install-recommends rpm
-          echo 'deb [trusted=yes] https://repo.goreleaser.com/apt/ /' \
-            | sudo tee /etc/apt/sources.list.d/goreleaser.list
-          sudo apt-get update -qq
-          sudo apt-get install -y nfpm
-
       - name: Build .deb package
         if: runner.os == 'Linux'
         run: |
           chmod +x packaging/postinst.sh
-          APP_NAME=$(echo "$REPO_NAME" | sed 's/-/ /g; s/\b./\u&/g')
-          export APP_NAME
-          nfpm package \
-            --config nfpm.yaml \
-            --packager deb \
-            --target "dist/${REPO_NAME}-${APP_VERSION}-amd64.deb"
-
-      - name: Build .rpm package
-        if: runner.os == 'Linux'
-        run: |
-          APP_NAME=$(echo "$REPO_NAME" | sed 's/-/ /g; s/\b./\u&/g')
-          export APP_NAME
-          nfpm package \
-            --config nfpm.yaml \
-            --packager rpm \
-            --target "dist/${REPO_NAME}-${APP_VERSION}-amd64.rpm"
+          PKG_NAME=$(echo "${REPO_NAME}" | tr '[:upper:]' '[:lower:]' | tr '_' '-')
+          DEB_ROOT="$(pwd)/deb_build"
+          mkdir -p "${DEB_ROOT}/DEBIAN"
+          mkdir -p "${DEB_ROOT}/opt/${REPO_NAME}"
+          mkdir -p "${DEB_ROOT}/usr/bin"
+          mkdir -p "${DEB_ROOT}/usr/share/applications"
+          cp -r "dist/${REPO_NAME}/." "${DEB_ROOT}/opt/${REPO_NAME}/"
+          ln -s "/opt/${REPO_NAME}/${REPO_NAME}" "${DEB_ROOT}/usr/bin/${REPO_NAME}"
+          cp "packaging/${REPO_NAME}.desktop" "${DEB_ROOT}/usr/share/applications/"
+          printf 'Package: %s\nVersion: %s\nArchitecture: amd64\nMaintainer: Windesheim <info@windesheim.nl>\nDescription: ResilienceScan Control Center\n' \
+            "$PKG_NAME" "$APP_VERSION" > "${DEB_ROOT}/DEBIAN/control"
+          cp packaging/postinst.sh "${DEB_ROOT}/DEBIAN/postinst"
+          chmod 755 "${DEB_ROOT}/DEBIAN/postinst"
+          dpkg-deb --build --root-owner-group "${DEB_ROOT}" \
+            "dist/${REPO_NAME}-${APP_VERSION}-amd64.deb"
 
       - uses: actions/upload-artifact@v4
         with:
