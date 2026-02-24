@@ -53,12 +53,18 @@ $R_PACKAGES = @(
     "jsonlite", "ggrepel", "cowplot"
 )
 
-# LaTeX packages required by ResilienceReport.qmd + kableExtra dependencies
+# LaTeX packages required by ResilienceReport.qmd + kableExtra dependencies.
+# Use TLmgr repository package names (not LaTeX command/file names):
+#   afterpage  → preprint  (preprint bundle contains afterpage.sty)
+#   graphicx   → graphics  (graphics bundle contains graphicx.sty)
+#   array      → omitted   (part of LaTeX base / tools, already in TinyTeX core)
+#   longtable  → omitted   (part of tools bundle, already listed)
+#   tikz       → omitted   (provided by pgf, already listed)
 $LATEX_PACKAGES = @(
-    "pgf", "xcolor", "colortbl", "booktabs", "longtable", "multirow",
-    "float", "wrapfig", "pdflscape", "geometry", "afterpage", "graphicx",
-    "array", "tabu", "threeparttable", "threeparttablex", "ulem", "makecell",
-    "tikz", "environ", "trimspaces", "capt-of", "caption", "hyperref",
+    "pgf", "xcolor", "colortbl", "booktabs", "multirow",
+    "float", "wrapfig", "pdflscape", "geometry", "preprint", "graphics",
+    "tabu", "threeparttable", "threeparttablex", "ulem", "makecell",
+    "environ", "trimspaces", "capt-of", "caption", "hyperref",
     "setspace", "fancyhdr", "microtype", "lm", "needspace", "varwidth",
     "mdwtools", "xstring", "tools"
 )
@@ -238,6 +244,20 @@ if (-not $tlmgr) {
 $tlmgr = Get-Command tlmgr -ErrorAction SilentlyContinue
 if ($tlmgr) {
     Write-Log "Installing LaTeX packages via tlmgr: $($tlmgr.Source)"
+
+    # Pre-create directories that tlmgr's tar extractor may fail to create when
+    # the texmf-dist tree is sparse (common in fresh TinyTeX installs).
+    $tlmgrSrc    = $tlmgr.Source   # e.g. ...TinyTeX\bin\windows\tlmgr.bat
+    $tinyTexRoot = Split-Path (Split-Path (Split-Path $tlmgrSrc))
+    $preCreateDirs = @("tex\latex\capt-of", "tex\latex\preprint")
+    foreach ($d in $preCreateDirs) {
+        $fullPath = Join-Path $tinyTexRoot "texmf-dist\$d"
+        if (-not (Test-Path $fullPath)) {
+            New-Item -ItemType Directory -Force -Path $fullPath | Out-Null
+            Write-Log "Pre-created dir: $fullPath"
+        }
+    }
+
     try {
         & tlmgr install @LATEX_PACKAGES 2>&1 | ForEach-Object { Write-Log "  [tlmgr] $_" }
         Write-Log "LaTeX packages installed."
@@ -261,8 +281,11 @@ if ($rscript) {
     # Grant Users read access to the R library so the app can load packages
     icacls $R_LIB /grant "BUILTIN\Users:(OI)(CI)RX" /T /Q 2>&1 | Out-Null
     $pkgList = ($R_PACKAGES | ForEach-Object { '"' + $_ + '"' }) -join ", "
+    # R requires forward slashes in paths — backslashes in Windows paths cause
+    # "unrecognized escape" errors (e.g. \P in \Program Files is not a valid escape).
+    $R_LIB_R = $R_LIB.Replace('\', '/')
     try {
-        & $rscript -e "install.packages(c($pkgList), lib='$R_LIB', repos='https://cloud.r-project.org', quiet=TRUE)" 2>&1 |
+        & $rscript -e "install.packages(c($pkgList), lib='$R_LIB_R', repos='https://cloud.r-project.org', quiet=TRUE)" 2>&1 |
             ForEach-Object { Write-Log "  [R] $_" }
         Write-Log "R packages installed."
     } catch {

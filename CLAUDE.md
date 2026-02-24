@@ -194,3 +194,16 @@ emails via Outlook COM (Windows) or SMTP fallback (Office365)
 - [x] `_r_library_path()` + R_LIBS injection in quarto render subprocess
 - [x] TinyTeX binaries symlinked to `/usr/local/bin` via `$HOME/.TinyTeX/bin/x86_64-linux`
 - **Gate:** ✅ Docker Ubuntu 22.04 fresh-machine test: R 4.5.2 + Quarto 1.6.39 + all 19 R packages + system check PASS
+
+### MILESTONE 9 — Fix Windows installer: R packages + LaTeX package names 🔧 IN PROGRESS
+Errors observed on real Windows install (v0.20.11 build):
+1. **R packages not installed** — `'\P' is an unrecognized escape` because `C:\Program Files\...\r-library` is passed raw to R; backslash `\P` is an invalid escape sequence in R strings.
+2. **Wrong LaTeX package names** — `afterpage`, `array`, `graphicx`, `longtable`, `tikz` are not TLmgr repository names (they are LaTeX command names or file names). TLmgr reports "not present in repository".
+3. **`capt-of` tar failure** — tlmgr cannot extract `capt-of.sty` because the target directory `texmf-dist/tex/latex/capt-of/` does not exist in a fresh TinyTeX tree.
+4. **PS5.1 parse errors in error.log** — from stale bundled script in old installer build; will be resolved by rebuild.
+
+Fixes applied to `packaging/setup_dependencies.ps1`:
+- [x] R path: add `$R_LIB_R = $R_LIB.Replace('\', '/')` and use `$R_LIB_R` in the R `-e` string
+- [x] LaTeX list: `afterpage`→`preprint`, `graphicx`→`graphics`; remove `array`, `longtable`, `tikz` (covered by `tools` and `pgf` already in list)
+- [x] Pre-create `texmf-dist\tex\latex\capt-of` (and `preprint`) before running `tlmgr install`
+- **Gate:** Fresh Windows VM (no prior R/LaTeX): all 19 R packages install without error + `quarto render ResilienceReport.qmd` produces a PDF
