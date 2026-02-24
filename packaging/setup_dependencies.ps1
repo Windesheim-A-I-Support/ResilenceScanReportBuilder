@@ -3,6 +3,7 @@
     Silently installs R, Quarto, TinyTeX and required R/LaTeX packages.
     Runs as SYSTEM via Task Scheduler — no UAC prompts, no execution-policy blocks.
     Progress is logged to C:\ProgramData\ResilienceScan\setup.log
+    Full transcript (all output + errors) at C:\ProgramData\ResilienceScan\setup_transcript.log
 
 .PARAMETER InstallDir
     Installation directory (default: directory containing this script).
@@ -13,12 +14,33 @@ param(
 
 # PS 5.1 compatible — do NOT use ?. null-conditional operator (PS 7+ only).
 $ProgressPreference = "SilentlyContinue"   # suppress slow progress bars
+$ErrorActionPreference = "Continue"        # don't silently swallow errors
+
+$LOG_DIR        = "C:\ProgramData\ResilienceScan"
+$LOG_FILE       = "$LOG_DIR\setup.log"
+$TRANSCRIPT     = "$LOG_DIR\setup_transcript.log"
+$ERROR_LOG      = "$LOG_DIR\setup_error.log"
+
+# Ensure log directory exists before anything else
+New-Item -ItemType Directory -Force -Path $LOG_DIR | Out-Null
+
+# Capture EVERYTHING (stdout + stderr + errors) to the transcript
+Start-Transcript -Path $TRANSCRIPT -Append -Force | Out-Null
+
+# Global trap: any terminating error writes to setup_error.log + setup.log
+trap {
+    $errMsg = "[FATAL $(Get-Date -Format 'HH:mm:ss')] Unhandled error: $($_.Exception.Message)`n$($_.ScriptStackTrace)"
+    Write-Host $errMsg
+    Add-Content -Path $ERROR_LOG -Value $errMsg -Encoding UTF8
+    Add-Content -Path $LOG_FILE  -Value $errMsg -Encoding UTF8
+    Stop-Transcript | Out-Null
+    exit 1
+}
 
 $R_VERSION      = "4.3.2"
 $QUARTO_VERSION = "1.6.39"
 $R_LIB          = "$InstallDir\r-library"
 $TMP            = "C:\Windows\Temp"        # reliable under SYSTEM account
-$LOG_FILE       = "C:\ProgramData\ResilienceScan\setup.log"
 
 $R_PACKAGES = @(
     "readr", "dplyr", "stringr", "tidyr", "ggplot2", "knitr",
@@ -48,6 +70,9 @@ function Write-Log {
 Write-Log "=== ResilienceScan dependency setup started (running as SYSTEM) ==="
 Write-Log "InstallDir : $InstallDir"
 Write-Log "R_LIB      : $R_LIB"
+Write-Log "Transcript : $TRANSCRIPT"
+Write-Log "PS version : $($PSVersionTable.PSVersion)"
+Write-Log "Running as : $([System.Security.Principal.WindowsIdentity]::GetCurrent().Name)"
 
 # ── Helper: find Rscript.exe (PS 5.1 compatible — no ?. operator) ─────────────
 function Find-Rscript {
@@ -73,22 +98,33 @@ function Refresh-Path {
 }
 
 # ── R ────────────────────────────────────────────────────────────────────────
-if (-not (Find-Rscript)) {
+$rscriptBefore = Find-Rscript
+if (-not $rscriptBefore) {
     Write-Log "Downloading R $R_VERSION..."
     $rUrl = "https://cran.r-project.org/bin/windows/base/R-$R_VERSION-win.exe"
     $rTmp = "$TMP\R-$R_VERSION-win.exe"
     try {
+        Write-Log "  URL: $rUrl"
         Invoke-WebRequest -Uri $rUrl -OutFile $rTmp -UseBasicParsing
+        Write-Log "  Download complete ($([math]::Round((Get-Item $rTmp).Length / 1MB, 1)) MB)"
         Write-Log "Installing R $R_VERSION (silent, all users)..."
-        Start-Process -FilePath $rTmp -ArgumentList "/VERYSILENT", "/NORESTART", "/ALLUSERS" -Wait
+        $proc = Start-Process -FilePath $rTmp -ArgumentList "/VERYSILENT", "/NORESTART", "/ALLUSERS" -Wait -PassThru
+        Write-Log "  R installer exit code: $($proc.ExitCode)"
         Remove-Item $rTmp -Force -ErrorAction SilentlyContinue
         Refresh-Path
-        Write-Log "R installed."
+        $rAfter = Find-Rscript
+        if ($rAfter) {
+            Write-Log "R installed successfully: $rAfter"
+        } else {
+            Write-Log "WARNING: R installer finished but Rscript.exe not found — check installer exit code above."
+        }
     } catch {
-        Write-Log "ERROR installing R: $_"
+        Write-Log "ERROR installing R: $($_.Exception.Message)"
+        Write-Log "  Stack: $($_.ScriptStackTrace)"
+        Add-Content -Path $ERROR_LOG -Value "[R] $($_.Exception.Message)`n$($_.ScriptStackTrace)" -Encoding UTF8
     }
 } else {
-    Write-Log "R already present — skipping."
+    Write-Log "R already present: $rscriptBefore — skipping."
 }
 
 # ── Quarto ───────────────────────────────────────────────────────────────────
@@ -99,17 +135,27 @@ if (-not $quartoPath) {
     $qUrl = "https://github.com/quarto-dev/quarto-cli/releases/download/v$QUARTO_VERSION/quarto-$QUARTO_VERSION-win.msi"
     $qTmp = "$TMP\quarto-$QUARTO_VERSION.msi"
     try {
+        Write-Log "  URL: $qUrl"
         Invoke-WebRequest -Uri $qUrl -OutFile $qTmp -UseBasicParsing
+        Write-Log "  Download complete ($([math]::Round((Get-Item $qTmp).Length / 1MB, 1)) MB)"
         Write-Log "Installing Quarto $QUARTO_VERSION (silent)..."
-        Start-Process -FilePath msiexec -ArgumentList "/i", $qTmp, "/qn", "/norestart" -Wait
+        $proc = Start-Process -FilePath msiexec -ArgumentList "/i", $qTmp, "/qn", "/norestart" -Wait -PassThru
+        Write-Log "  msiexec exit code: $($proc.ExitCode)"
         Remove-Item $qTmp -Force -ErrorAction SilentlyContinue
         Refresh-Path
-        Write-Log "Quarto installed."
+        $quartoAfter = Get-Command quarto -ErrorAction SilentlyContinue
+        if ($quartoAfter) {
+            Write-Log "Quarto installed successfully: $($quartoAfter.Source)"
+        } else {
+            Write-Log "WARNING: Quarto installer finished but quarto not found on PATH."
+        }
     } catch {
-        Write-Log "ERROR installing Quarto: $_"
+        Write-Log "ERROR installing Quarto: $($_.Exception.Message)"
+        Write-Log "  Stack: $($_.ScriptStackTrace)"
+        Add-Content -Path $ERROR_LOG -Value "[Quarto] $($_.Exception.Message)`n$($_.ScriptStackTrace)" -Encoding UTF8
     }
 } else {
-    Write-Log "Quarto already present — skipping."
+    Write-Log "Quarto already present: $quartoPath — skipping."
 }
 
 # ── TinyTeX ──────────────────────────────────────────────────────────────────
@@ -120,7 +166,7 @@ $tlmgr = Get-Command tlmgr -ErrorAction SilentlyContinue
 if (-not $tlmgr) {
     Write-Log "Installing TinyTeX via Quarto..."
     try {
-        & quarto install tinytex --no-prompt 2>&1 | ForEach-Object { Write-Log "  $_" }
+        & quarto install tinytex --no-prompt 2>&1 | ForEach-Object { Write-Log "  [quarto] $_" }
 
         # Find where quarto put TinyTeX (varies by account)
         $tinyTexBin = $null
@@ -130,7 +176,9 @@ if (-not $tlmgr) {
             "C:\Windows\system32\config\systemprofile\AppData\Local\TinyTeX\bin\windows",
             "C:\Windows\system32\config\systemprofile\AppData\Roaming\TinyTeX\bin\windows"
         )
+        Write-Log "Searching for TinyTeX bin directory..."
         foreach ($c in $candidates) {
+            Write-Log "  Checking: $c — $(if (Test-Path $c) { 'FOUND' } else { 'not found' })"
             if (Test-Path $c) { $tinyTexBin = $c; break }
         }
 
@@ -147,27 +195,33 @@ if (-not $tlmgr) {
             if ($machinePath -notlike "*$tinyTexBin*") {
                 [System.Environment]::SetEnvironmentVariable("PATH", "$machinePath;$tinyTexBin", "Machine")
                 Write-Log "TinyTeX added to system PATH."
+            } else {
+                Write-Log "TinyTeX already in system PATH."
             }
             $env:PATH = "$env:PATH;$tinyTexBin"
         } else {
-            Write-Log "WARNING: TinyTeX bin dir not found after install."
+            Write-Log "WARNING: TinyTeX bin dir not found after install — tlmgr will be unavailable."
         }
     } catch {
-        Write-Log "ERROR installing TinyTeX: $_"
+        Write-Log "ERROR installing TinyTeX: $($_.Exception.Message)"
+        Write-Log "  Stack: $($_.ScriptStackTrace)"
+        Add-Content -Path $ERROR_LOG -Value "[TinyTeX] $($_.Exception.Message)`n$($_.ScriptStackTrace)" -Encoding UTF8
     }
 } else {
-    Write-Log "TinyTeX already present — skipping."
+    Write-Log "TinyTeX already present: $($tlmgr.Source) — skipping."
 }
 
 # ── LaTeX packages ────────────────────────────────────────────────────────────
 $tlmgr = Get-Command tlmgr -ErrorAction SilentlyContinue
 if ($tlmgr) {
-    Write-Log "Installing LaTeX packages..."
+    Write-Log "Installing LaTeX packages via tlmgr: $($tlmgr.Source)"
     try {
-        & tlmgr install @LATEX_PACKAGES 2>&1 | ForEach-Object { Write-Log "  $_" }
+        & tlmgr install @LATEX_PACKAGES 2>&1 | ForEach-Object { Write-Log "  [tlmgr] $_" }
         Write-Log "LaTeX packages installed."
     } catch {
-        Write-Log "ERROR installing LaTeX packages: $_"
+        Write-Log "ERROR installing LaTeX packages: $($_.Exception.Message)"
+        Write-Log "  Stack: $($_.ScriptStackTrace)"
+        Add-Content -Path $ERROR_LOG -Value "[LaTeX] $($_.Exception.Message)`n$($_.ScriptStackTrace)" -Encoding UTF8
     }
 } else {
     Write-Log "WARNING: tlmgr not found — LaTeX packages skipped."
@@ -176,23 +230,31 @@ if ($tlmgr) {
 # ── R packages ───────────────────────────────────────────────────────────────
 $rscript = Find-Rscript
 if ($rscript) {
-    Write-Log "Installing R packages into $R_LIB..."
+    Write-Log "Installing R packages into $R_LIB (using $rscript)..."
     New-Item -ItemType Directory -Force -Path $R_LIB | Out-Null
     # Grant Users read access to the R library so the app can load packages
     icacls $R_LIB /grant "BUILTIN\Users:(OI)(CI)RX" /T /Q 2>&1 | Out-Null
     $pkgList = ($R_PACKAGES | ForEach-Object { '"' + $_ + '"' }) -join ", "
     try {
         & $rscript -e "install.packages(c($pkgList), lib='$R_LIB', repos='https://cloud.r-project.org', quiet=TRUE)" 2>&1 |
-            ForEach-Object { Write-Log "  $_" }
+            ForEach-Object { Write-Log "  [R] $_" }
         Write-Log "R packages installed."
     } catch {
-        Write-Log "ERROR installing R packages: $_"
+        Write-Log "ERROR installing R packages: $($_.Exception.Message)"
+        Write-Log "  Stack: $($_.ScriptStackTrace)"
+        Add-Content -Path $ERROR_LOG -Value "[R packages] $($_.Exception.Message)`n$($_.ScriptStackTrace)" -Encoding UTF8
     }
 } else {
     Write-Log "WARNING: Rscript not found — R packages not installed."
 }
 
 Write-Log "=== Dependency setup complete ==="
+Write-Log "Log files:"
+Write-Log "  Main log    : $LOG_FILE"
+Write-Log "  Transcript  : $TRANSCRIPT"
+Write-Log "  Error log   : $ERROR_LOG"
+
+Stop-Transcript | Out-Null
 
 # Self-delete the scheduled task now that setup is done
 Unregister-ScheduledTask -TaskName "ResilienceScanSetup" -Confirm:$false -ErrorAction SilentlyContinue
