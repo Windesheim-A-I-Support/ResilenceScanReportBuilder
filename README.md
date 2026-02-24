@@ -294,5 +294,9 @@ See [`CLAUDE.md`](CLAUDE.md) for the full milestone plan with gate conditions.
 | M6 | Email sending | ✅ v0.18.0 |
 | M7 | Startup system check guard | ✅ v0.19.0 |
 | M8 | Complete installer (R + Quarto + TinyTeX) | ✅ v0.20.5 |
-| M9 | Fix Windows installer: R path, LaTeX packages, capt-of | 🔧 v0.20.12–13 |
+| M9 | Fix Windows installer: R path, LaTeX packages, capt-of | 🔧 v0.20.12–14 |
 | M10 | Fix report generation in installed app (.xlsx input + quarto path) | ⏳ TODO |
+| M11 | Anonymised sample dataset + pipeline smoke test | ⏳ TODO |
+| M12 | End-to-end CI pipeline test (Windows + Linux, real render) | ⏳ TODO |
+| M13 | In-app update checker | ⏳ TODO |
+| M14 | README download badges (auto-updated on release) | ⏳ TODO |

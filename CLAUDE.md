@@ -222,3 +222,68 @@ Two bugs found during real Windows testing (observed after M9 installer fixes):
 - Root cause: `ResilienceReport.qmd` (and its companion assets — `_extensions/`, `img/`, `references.bib`, `QTDublinIrish.otf`, `.tex` includes) are not being found by the installed app.  PyInstaller bundles them into `_internal/` but the quarto subprocess is invoked with a working directory or `--input` path that does not resolve to the bundled `.qmd`.
 - Fix: ensure `generate_all_reports.py` / `generate_single_report.py` resolve `ResilienceReport.qmd` relative to the correct root (frozen: `Path(sys.executable).parent` or `sys._MEIPASS`; dev: repo root) and pass the absolute path to `quarto render`.  Verify all companion assets are included in the PyInstaller `--add-data` flags in `ci.yml`.
 - **Gate:** Installed app generates a visually correct PDF from a real CSV without errors.
+
+### MILESTONE 11 — Anonymised sample dataset ⏳ TODO
+Create a committed test fixture that exercises the full pipeline without exposing real respondent data.
+
+**What to build:**
+- `scripts/make_sample_data.py` — generate `tests/fixtures/sample_anonymized.xlsx` from scratch (no dependency on the real file).  3–5 rows, realistic but entirely fictional data:
+  - Names: e.g. "Alice Bennet", "Bob Hartley", "Carol Diaz"
+  - Companies: e.g. "Acme Logistics BV", "Globex Manufacturing", "Initech Solutions"
+  - Emails: `alice.bennet@example.com` etc.  (never real addresses)
+  - Score columns (`up__*`, `in__*`, `do__*`): values 1–5 matching the cleaned_master.csv schema exactly
+  - `submitdate`, `reportsent` (False), `version`, `sector`, `country` all present
+  - Sheet name `MasterData`, header row in the same position `convert_data.py` expects
+- `tests/fixtures/sample_anonymized.xlsx` — the generated file, **committed to the repo** (no real data, safe to version-control)
+- `tests/test_pipeline_sample.py` — smoke test: `convert_and_save()` succeeds on the fixture and produces a valid CSV with the right columns
+
+**Gate:** `pytest tests/test_pipeline_sample.py` passes on a clean checkout with no real data files present.
+
+### MILESTONE 12 — End-to-end CI pipeline test ⏳ TODO
+Automatically validate the full report-generation pipeline on every release build, using the anonymised fixture from M11.
+
+**What to build:**
+- New workflow `.github/workflows/e2e.yml` — runs on `workflow_dispatch` (manual trigger) and optionally on release tag pushes:
+  - Matrix: `windows-latest` + `ubuntu-latest`
+  - Steps: install R + Quarto + TinyTeX (reuse the same versions as the installer), install R packages, run `convert_data.py` on the fixture, run `clean_data.py`, run `generate_all_reports.py`, run `validate_reports.py`
+  - Assert: at least one PDF file exists in `reports/` and `validate_reports.py` exits 0
+  - Upload PDFs as a CI artifact for visual inspection
+- The workflow must inject `R_LIBS` pointing at the CI-installed package directory (same logic as the frozen app)
+- Keep it `workflow_dispatch` initially so it doesn't slow down every push; promote to `push` on `main` once it reliably passes
+
+**Gate:** Manual trigger of `e2e.yml` on both Windows and Linux runners produces at least 3 PDFs (one per fixture row) and the validate step exits 0.
+
+### MILESTONE 13 — In-app update checker ⏳ TODO
+The installed app notifies users when a newer version is available on GitHub, with a one-click path to download it.
+
+**What to build:**
+- `update_checker.py` — module with a single public function `check_for_update() -> dict | None`:
+  - Calls `https://api.github.com/repos/OWNER/REPO/releases/latest` (timeout 5 s, fail silently)
+  - Parses `tag_name` (e.g. `v0.21.0`) and compares with the running app version from `pyproject.toml` or a baked-in `__version__` constant
+  - Returns `{"version": "0.21.0", "url": "https://github.com/.../releases/tag/v0.21.0"}` if newer, else `None`
+- Wire into `app/main.py`:
+  - Background thread at startup (non-blocking, does not delay GUI)
+  - If an update is found: show a status-bar message "Update available: v0.21.0 — Download" where "Download" is a clickable hyperlink that opens the browser via `webbrowser.open(url)`
+  - If the check fails (no internet, rate-limited, etc.): silently ignore
+- The current version must be baked into the frozen app at build time — inject it as an env var in CI and write it to `app/_version.py` during the PyInstaller build step
+
+**Gate:** Running the app with a deliberately downgraded `__version__` shows the update notification; running with the real current version shows nothing.
+
+### MILESTONE 14 — README download badges ⏳ TODO
+The README always shows direct download links to the latest installer artifacts so users can find them without navigating GitHub releases.
+
+**What to build:**
+- Add a **Downloads** section near the top of `README.md` with a download table, initially pointing to `releases/latest`:
+  ```
+  | Platform | Download |
+  |----------|----------|
+  | Windows  | [Windows Installer (.exe)](https://github.com/OWNER/REPO/releases/latest/download/REPO-VERSION-windows-setup.exe) |
+  | Windows  | [Portable ZIP](https://github.com/OWNER/REPO/releases/latest/download/REPO-VERSION-windows-portable.zip) |
+  | Linux    | [.deb (Ubuntu/Debian)](https://github.com/OWNER/REPO/releases/latest/download/REPO-VERSION-amd64.deb) |
+  | Linux    | [AppImage](https://github.com/OWNER/REPO/releases/latest/download/REPO-VERSION-x86_64.AppImage) |
+  | Linux    | [Tarball (.tar.gz)](https://github.com/OWNER/REPO/releases/latest/download/REPO-VERSION-linux-amd64.tar.gz) |
+  ```
+- Add a CI step in the `publish` job of `ci.yml`: after the release is created, patch `README.md` to replace `REPO-VERSION` with the actual `APP_VERSION`, then commit and push the change back to `main`.  Use `git push origin main` with `[skip ci]` in the commit message to avoid triggering another build loop.
+- Add a shields.io `Latest Release` badge at the top of the README that always reflects the current version.
+
+**Gate:** After a release build, `README.md` on `main` contains direct download links with the correct version number; clicking them downloads the right files.
