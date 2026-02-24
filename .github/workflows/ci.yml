@@ -226,11 +226,12 @@ jobs:
               File /r "{bundle}\\"
               CreateShortcut "$DESKTOP\\{repo}.lnk" "$INSTDIR\\{repo}.exe"
               WriteUninstaller "$INSTDIR\\Uninstall.exe"
-              ; Run dependency setup script (downloads R, Quarto, TinyTeX, R packages)
-              DetailPrint "Installing R, Quarto, TinyTeX and R packages..."
-              DetailPrint "This may take several minutes. Please wait..."
-              nsExec::ExecToLog '$WINDIR\\System32\\WindowsPowerShell\\v1.0\\powershell.exe -ExecutionPolicy Bypass -File "$INSTDIR\\setup_dependencies.ps1" -InstallDir "$INSTDIR"'
-              Pop $0
+              ; Launch dependency setup in the background so the installer finishes immediately.
+              ; R + Quarto + TinyTeX + R packages are downloaded and installed after the user
+              ; clicks Finish. Progress is logged to %ProgramData%\ResilienceScan\setup.log
+              DetailPrint "Launching background dependency setup (R, Quarto, TinyTeX)..."
+              DetailPrint "Monitor progress: %ProgramData%\ResilienceScan\setup.log"
+              Exec '"$WINDIR\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -ExecutionPolicy Bypass -WindowStyle Hidden -File "$INSTDIR\\setup_dependencies.ps1" -InstallDir "$INSTDIR"'
             SectionEnd
             Section "Uninstall"
               Delete "$DESKTOP\\{repo}.lnk"
