@@ -61,6 +61,18 @@ def _config_path() -> Path:
 CONFIG_FILE = _config_path()
 
 
+def _r_library_path() -> Path | None:
+    """Return the bundled R library path when frozen, None in dev mode.
+
+    The NSIS / postinst installer places R packages in an ``r-library``
+    directory alongside the executable so the app uses them instead of (or
+    in addition to) whatever the user has installed system-wide.
+    """
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).parent / "r-library"
+    return None
+
+
 class ResilienceScanGUI:
     """Main GUI Application for ResilienceScan Control Center"""
 
@@ -2436,6 +2448,16 @@ TOP 10 MOST ENGAGED COMPANIES:
                     # Removed --quiet to capture error details
                 ]
 
+                # Build subprocess environment — inject R_LIBS if frozen so
+                # Quarto finds the R packages bundled by the installer.
+                gen_env = os.environ.copy()
+                r_lib = _r_library_path()
+                if r_lib is not None and r_lib.exists():
+                    existing = gen_env.get("R_LIBS", "")
+                    gen_env["R_LIBS"] = (
+                        f"{r_lib}{os.pathsep}{existing}" if existing else str(r_lib)
+                    )
+
                 # Execute quarto render — stream stdout line-by-line to the log
                 self._gen_proc = subprocess.Popen(
                     cmd,
@@ -2443,6 +2465,7 @@ TOP 10 MOST ENGAGED COMPANIES:
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
                     text=True,
+                    env=gen_env,
                 )
                 stdout_lines = []
                 for line in self._gen_proc.stdout:

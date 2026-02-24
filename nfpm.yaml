@@ -6,6 +6,9 @@ description: "${APP_NAME} desktop application"
 maintainer: "Your Name <you@example.com>"   # TODO
 homepage: "https://github.com/${GITHUB_REPOSITORY}"
 
+scripts:
+  postinstall: packaging/postinst.sh
+
 contents:
   # Install the full onedir bundle to /opt (** preserves subdirectory structure)
   - src: dist/${REPO_NAME}/**

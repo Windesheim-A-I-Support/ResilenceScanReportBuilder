@@ -170,6 +170,7 @@ jobs:
             --add-data "_extensions;_extensions" `
             --add-data "references.bib;." `
             --add-data "QTDublinIrish.otf;." `
+            --add-data "packaging/setup_dependencies.ps1;." `
             app/main.py
 
       - name: Install NSIS
@@ -225,6 +226,11 @@ jobs:
               File /r "{bundle}\\"
               CreateShortcut "$DESKTOP\\{repo}.lnk" "$INSTDIR\\{repo}.exe"
               WriteUninstaller "$INSTDIR\\Uninstall.exe"
+              ; Run dependency setup script (downloads R, Quarto, TinyTeX, R packages)
+              DetailPrint "Installing R, Quarto, TinyTeX and R packages..."
+              DetailPrint "This may take several minutes. Please wait..."
+              nsExec::ExecToLog '$WINDIR\\System32\\WindowsPowerShell\\v1.0\\powershell.exe -ExecutionPolicy Bypass -File "$INSTDIR\\setup_dependencies.ps1" -InstallDir "$INSTDIR"'
+              Pop $0
             SectionEnd
             Section "Uninstall"
               Delete "$DESKTOP\\{repo}.lnk"
@@ -301,6 +307,33 @@ jobs:
           chmod +x appimagetool-x86_64.AppImage
           ARCH=x86_64 ./appimagetool-x86_64.AppImage --appimage-extract-and-run \
             AppDir "dist/${REPO_NAME}-${APP_VERSION}-x86_64.AppImage"
+
+      - name: Build .deb and .rpm packages
+        if: runner.os == 'Linux'
+        run: |
+          # Install nfpm
+          NFPM_VERSION="2.38.0"
+          wget -q "https://github.com/goreleaser/nfpm/releases/download/v${NFPM_VERSION}/nfpm_${NFPM_VERSION}_Linux_x86_64.tar.gz"
+          tar -xzf "nfpm_${NFPM_VERSION}_Linux_x86_64.tar.gz" nfpm
+          chmod +x nfpm
+
+          # Make postinst executable (nfpm requires it)
+          chmod +x packaging/postinst.sh
+
+          APP_NAME=$(echo "$REPO_NAME" | sed 's/-/ /g; s/\b./\u&/g')
+          export APP_NAME
+
+          # Build .deb
+          ./nfpm package \
+            --config nfpm.yaml \
+            --packager deb \
+            --target "dist/${REPO_NAME}-${APP_VERSION}-amd64.deb"
+
+          # Build .rpm
+          ./nfpm package \
+            --config nfpm.yaml \
+            --packager rpm \
+            --target "dist/${REPO_NAME}-${APP_VERSION}-amd64.rpm"
 
       - uses: actions/upload-artifact@v4
         with:
