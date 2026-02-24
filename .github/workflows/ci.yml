@@ -234,7 +234,7 @@ jobs:
               ; background. Progress: C:\ProgramData\ResilienceScan\setup.log
               DetailPrint "Scheduling background dependency setup (R, Quarto, TinyTeX)..."
               DetailPrint "Progress: C:\ProgramData\ResilienceScan\setup.log"
-              nsExec::ExecToLog '$WINDIR\\System32\\WindowsPowerShell\\v1.0\\powershell.exe -ExecutionPolicy Bypass -NonInteractive -File "$INSTDIR\\launch_setup.ps1" -InstallDir "$INSTDIR"'
+              nsExec::ExecToLog '$WINDIR\\System32\\WindowsPowerShell\\v1.0\\powershell.exe -ExecutionPolicy Bypass -NonInteractive -File "$INSTDIR\\_internal\\launch_setup.ps1" -InstallDir "$INSTDIR"'
               Pop $0
             SectionEnd
             Section "Uninstall"

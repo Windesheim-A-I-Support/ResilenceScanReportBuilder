@@ -20,7 +20,7 @@ New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 "[LAUNCHER $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Registering background setup task (SYSTEM)..." |
     Set-Content $logFile -Encoding UTF8
 
-$setupScript = Join-Path $InstallDir "setup_dependencies.ps1"
+$setupScript = Join-Path $InstallDir "_internal\setup_dependencies.ps1"
 
 $action = New-ScheduledTaskAction `
     -Execute  "powershell.exe" `
