@@ -1,7 +1,7 @@
 <#
 .SYNOPSIS
     Silently installs R, Quarto, TinyTeX and required R/LaTeX packages.
-    Runs as SYSTEM via Task Scheduler — no UAC prompts, no execution-policy blocks.
+    Runs as SYSTEM via Task Scheduler -- no UAC prompts, no execution-policy blocks.
     Progress is logged to C:\ProgramData\ResilienceScan\setup.log
     Full transcript (all output + errors) at C:\ProgramData\ResilienceScan\setup_transcript.log
 
@@ -12,14 +12,14 @@ param(
     [string]$InstallDir = $PSScriptRoot
 )
 
-# PS 5.1 compatible — do NOT use ?. null-conditional operator (PS 7+ only).
-$ProgressPreference = "SilentlyContinue"   # suppress slow progress bars
-$ErrorActionPreference = "Continue"        # don't silently swallow errors
+# PS 5.1 compatible -- do NOT use ?. null-conditional operator (PS 7+ only).
+$ProgressPreference    = "SilentlyContinue"   # suppress slow progress bars
+$ErrorActionPreference = "Continue"           # don't silently swallow errors
 
-$LOG_DIR        = "C:\ProgramData\ResilienceScan"
-$LOG_FILE       = "$LOG_DIR\setup.log"
-$TRANSCRIPT     = "$LOG_DIR\setup_transcript.log"
-$ERROR_LOG      = "$LOG_DIR\setup_error.log"
+$LOG_DIR    = "C:\ProgramData\ResilienceScan"
+$LOG_FILE   = "$LOG_DIR\setup.log"
+$TRANSCRIPT = "$LOG_DIR\setup_transcript.log"
+$ERROR_LOG  = "$LOG_DIR\setup_error.log"
 
 # Ensure log directory exists before anything else
 New-Item -ItemType Directory -Force -Path $LOG_DIR | Out-Null
@@ -29,10 +29,14 @@ Start-Transcript -Path $TRANSCRIPT -Append -Force | Out-Null
 
 # Global trap: any terminating error writes to setup_error.log + setup.log
 trap {
-    $errMsg = "[FATAL $(Get-Date -Format 'HH:mm:ss')] Unhandled error: $($_.Exception.Message)`n$($_.ScriptStackTrace)"
-    Write-Host $errMsg
-    Add-Content -Path $ERROR_LOG -Value $errMsg -Encoding UTF8
-    Add-Content -Path $LOG_FILE  -Value $errMsg -Encoding UTF8
+    $errMsg  = $_.Exception.Message
+    $errStk  = $_.ScriptStackTrace
+    $fatLine = "[FATAL $(Get-Date -Format 'HH:mm:ss')] Unhandled error: $errMsg"
+    Write-Host $fatLine
+    Add-Content -Path $ERROR_LOG -Value $fatLine           -Encoding UTF8
+    Add-Content -Path $ERROR_LOG -Value $errStk            -Encoding UTF8
+    Add-Content -Path $LOG_FILE  -Value $fatLine           -Encoding UTF8
+    Add-Content -Path $LOG_FILE  -Value $errStk            -Encoding UTF8
     Stop-Transcript | Out-Null
     exit 1
 }
@@ -59,7 +63,7 @@ $LATEX_PACKAGES = @(
     "mdwtools", "xstring", "tools"
 )
 
-# ── Logging ──────────────────────────────────────────────────────────────────
+# ---- Logging ----------------------------------------------------------------
 function Write-Log {
     param($msg)
     $line = "[SETUP $(Get-Date -Format 'HH:mm:ss')] $msg"
@@ -74,9 +78,9 @@ Write-Log "Transcript : $TRANSCRIPT"
 Write-Log "PS version : $($PSVersionTable.PSVersion)"
 Write-Log "Running as : $([System.Security.Principal.WindowsIdentity]::GetCurrent().Name)"
 
-# ── Helper: find Rscript.exe (PS 5.1 compatible — no ?. operator) ─────────────
+# ---- Helper: find Rscript.exe (PS 5.1 compatible -- no ?. operator) ---------
 function Find-Rscript {
-    $cmd = Get-Command Rscript -ErrorAction SilentlyContinue
+    $cmd      = Get-Command Rscript -ErrorAction SilentlyContinue
     $fromPath = if ($cmd) { $cmd.Source } else { $null }
     $candidates = @(
         $fromPath,
@@ -87,7 +91,8 @@ function Find-Rscript {
         if ($c -and (Test-Path $c)) { return $c }
     }
     # Fall back to any installed R version
-    $found = Get-ChildItem "C:\Program Files\R" -Filter "Rscript.exe" -Recurse -ErrorAction SilentlyContinue |
+    $found = Get-ChildItem "C:\Program Files\R" -Filter "Rscript.exe" `
+                 -Recurse -ErrorAction SilentlyContinue |
              Select-Object -First 1 -ExpandProperty FullName
     return $found
 }
@@ -97,7 +102,7 @@ function Refresh-Path {
                 [System.Environment]::GetEnvironmentVariable("PATH", "User")
 }
 
-# ── R ────────────────────────────────────────────────────────────────────────
+# ---- R ----------------------------------------------------------------------
 $rscriptBefore = Find-Rscript
 if (-not $rscriptBefore) {
     Write-Log "Downloading R $R_VERSION..."
@@ -106,9 +111,12 @@ if (-not $rscriptBefore) {
     try {
         Write-Log "  URL: $rUrl"
         Invoke-WebRequest -Uri $rUrl -OutFile $rTmp -UseBasicParsing
-        Write-Log "  Download complete ($([math]::Round((Get-Item $rTmp).Length / 1MB, 1)) MB)"
+        $sizeMB = [math]::Round((Get-Item $rTmp).Length / 1MB, 1)
+        Write-Log "  Download complete ($sizeMB MB)"
         Write-Log "Installing R $R_VERSION (silent, all users)..."
-        $proc = Start-Process -FilePath $rTmp -ArgumentList "/VERYSILENT", "/NORESTART", "/ALLUSERS" -Wait -PassThru
+        $proc = Start-Process -FilePath $rTmp `
+                    -ArgumentList "/VERYSILENT", "/NORESTART", "/ALLUSERS" `
+                    -Wait -PassThru
         Write-Log "  R installer exit code: $($proc.ExitCode)"
         Remove-Item $rTmp -Force -ErrorAction SilentlyContinue
         Refresh-Path
@@ -116,18 +124,21 @@ if (-not $rscriptBefore) {
         if ($rAfter) {
             Write-Log "R installed successfully: $rAfter"
         } else {
-            Write-Log "WARNING: R installer finished but Rscript.exe not found — check installer exit code above."
+            Write-Log "WARNING: R installer finished but Rscript.exe not found - check exit code above."
         }
     } catch {
-        Write-Log "ERROR installing R: $($_.Exception.Message)"
-        Write-Log "  Stack: $($_.ScriptStackTrace)"
-        Add-Content -Path $ERROR_LOG -Value "[R] $($_.Exception.Message)`n$($_.ScriptStackTrace)" -Encoding UTF8
+        $errMsg = $_.Exception.Message
+        $errStk = $_.ScriptStackTrace
+        Write-Log "ERROR installing R: $errMsg"
+        Write-Log "  Stack: $errStk"
+        Add-Content -Path $ERROR_LOG -Value "[R install] $errMsg"  -Encoding UTF8
+        Add-Content -Path $ERROR_LOG -Value $errStk                -Encoding UTF8
     }
 } else {
-    Write-Log "R already present: $rscriptBefore — skipping."
+    Write-Log "R already present: $rscriptBefore - skipping."
 }
 
-# ── Quarto ───────────────────────────────────────────────────────────────────
+# ---- Quarto -----------------------------------------------------------------
 $quartoCmd  = Get-Command quarto -ErrorAction SilentlyContinue
 $quartoPath = if ($quartoCmd) { $quartoCmd.Source } else { $null }
 if (-not $quartoPath) {
@@ -137,9 +148,12 @@ if (-not $quartoPath) {
     try {
         Write-Log "  URL: $qUrl"
         Invoke-WebRequest -Uri $qUrl -OutFile $qTmp -UseBasicParsing
-        Write-Log "  Download complete ($([math]::Round((Get-Item $qTmp).Length / 1MB, 1)) MB)"
+        $sizeMB = [math]::Round((Get-Item $qTmp).Length / 1MB, 1)
+        Write-Log "  Download complete ($sizeMB MB)"
         Write-Log "Installing Quarto $QUARTO_VERSION (silent)..."
-        $proc = Start-Process -FilePath msiexec -ArgumentList "/i", $qTmp, "/qn", "/norestart" -Wait -PassThru
+        $proc = Start-Process -FilePath msiexec `
+                    -ArgumentList "/i", $qTmp, "/qn", "/norestart" `
+                    -Wait -PassThru
         Write-Log "  msiexec exit code: $($proc.ExitCode)"
         Remove-Item $qTmp -Force -ErrorAction SilentlyContinue
         Refresh-Path
@@ -150,15 +164,18 @@ if (-not $quartoPath) {
             Write-Log "WARNING: Quarto installer finished but quarto not found on PATH."
         }
     } catch {
-        Write-Log "ERROR installing Quarto: $($_.Exception.Message)"
-        Write-Log "  Stack: $($_.ScriptStackTrace)"
-        Add-Content -Path $ERROR_LOG -Value "[Quarto] $($_.Exception.Message)`n$($_.ScriptStackTrace)" -Encoding UTF8
+        $errMsg = $_.Exception.Message
+        $errStk = $_.ScriptStackTrace
+        Write-Log "ERROR installing Quarto: $errMsg"
+        Write-Log "  Stack: $errStk"
+        Add-Content -Path $ERROR_LOG -Value "[Quarto install] $errMsg" -Encoding UTF8
+        Add-Content -Path $ERROR_LOG -Value $errStk                    -Encoding UTF8
     }
 } else {
-    Write-Log "Quarto already present: $quartoPath — skipping."
+    Write-Log "Quarto already present: $quartoPath - skipping."
 }
 
-# ── TinyTeX ──────────────────────────────────────────────────────────────────
+# ---- TinyTeX ----------------------------------------------------------------
 # quarto install tinytex installs to the current user's (SYSTEM's) APPDATA.
 # After install we locate the bin dir, grant other users read+execute access,
 # and add it to the machine-wide PATH so regular users find tlmgr/pdflatex.
@@ -178,7 +195,8 @@ if (-not $tlmgr) {
         )
         Write-Log "Searching for TinyTeX bin directory..."
         foreach ($c in $candidates) {
-            Write-Log "  Checking: $c — $(if (Test-Path $c) { 'FOUND' } else { 'not found' })"
+            $exists = if (Test-Path $c) { "FOUND" } else { "not found" }
+            Write-Log "  Checking: $c -- $exists"
             if (Test-Path $c) { $tinyTexBin = $c; break }
         }
 
@@ -193,25 +211,29 @@ if (-not $tlmgr) {
             # Add TinyTeX bin to machine-wide PATH
             $machinePath = [System.Environment]::GetEnvironmentVariable("PATH", "Machine")
             if ($machinePath -notlike "*$tinyTexBin*") {
-                [System.Environment]::SetEnvironmentVariable("PATH", "$machinePath;$tinyTexBin", "Machine")
+                [System.Environment]::SetEnvironmentVariable(
+                    "PATH", "$machinePath;$tinyTexBin", "Machine")
                 Write-Log "TinyTeX added to system PATH."
             } else {
                 Write-Log "TinyTeX already in system PATH."
             }
             $env:PATH = "$env:PATH;$tinyTexBin"
         } else {
-            Write-Log "WARNING: TinyTeX bin dir not found after install — tlmgr will be unavailable."
+            Write-Log "WARNING: TinyTeX bin dir not found after install - tlmgr will be unavailable."
         }
     } catch {
-        Write-Log "ERROR installing TinyTeX: $($_.Exception.Message)"
-        Write-Log "  Stack: $($_.ScriptStackTrace)"
-        Add-Content -Path $ERROR_LOG -Value "[TinyTeX] $($_.Exception.Message)`n$($_.ScriptStackTrace)" -Encoding UTF8
+        $errMsg = $_.Exception.Message
+        $errStk = $_.ScriptStackTrace
+        Write-Log "ERROR installing TinyTeX: $errMsg"
+        Write-Log "  Stack: $errStk"
+        Add-Content -Path $ERROR_LOG -Value "[TinyTeX install] $errMsg" -Encoding UTF8
+        Add-Content -Path $ERROR_LOG -Value $errStk                     -Encoding UTF8
     }
 } else {
-    Write-Log "TinyTeX already present: $($tlmgr.Source) — skipping."
+    Write-Log "TinyTeX already present: $($tlmgr.Source) - skipping."
 }
 
-# ── LaTeX packages ────────────────────────────────────────────────────────────
+# ---- LaTeX packages ---------------------------------------------------------
 $tlmgr = Get-Command tlmgr -ErrorAction SilentlyContinue
 if ($tlmgr) {
     Write-Log "Installing LaTeX packages via tlmgr: $($tlmgr.Source)"
@@ -219,15 +241,18 @@ if ($tlmgr) {
         & tlmgr install @LATEX_PACKAGES 2>&1 | ForEach-Object { Write-Log "  [tlmgr] $_" }
         Write-Log "LaTeX packages installed."
     } catch {
-        Write-Log "ERROR installing LaTeX packages: $($_.Exception.Message)"
-        Write-Log "  Stack: $($_.ScriptStackTrace)"
-        Add-Content -Path $ERROR_LOG -Value "[LaTeX] $($_.Exception.Message)`n$($_.ScriptStackTrace)" -Encoding UTF8
+        $errMsg = $_.Exception.Message
+        $errStk = $_.ScriptStackTrace
+        Write-Log "ERROR installing LaTeX packages: $errMsg"
+        Write-Log "  Stack: $errStk"
+        Add-Content -Path $ERROR_LOG -Value "[LaTeX packages] $errMsg" -Encoding UTF8
+        Add-Content -Path $ERROR_LOG -Value $errStk                    -Encoding UTF8
     }
 } else {
-    Write-Log "WARNING: tlmgr not found — LaTeX packages skipped."
+    Write-Log "WARNING: tlmgr not found - LaTeX packages skipped."
 }
 
-# ── R packages ───────────────────────────────────────────────────────────────
+# ---- R packages -------------------------------------------------------------
 $rscript = Find-Rscript
 if ($rscript) {
     Write-Log "Installing R packages into $R_LIB (using $rscript)..."
@@ -240,19 +265,22 @@ if ($rscript) {
             ForEach-Object { Write-Log "  [R] $_" }
         Write-Log "R packages installed."
     } catch {
-        Write-Log "ERROR installing R packages: $($_.Exception.Message)"
-        Write-Log "  Stack: $($_.ScriptStackTrace)"
-        Add-Content -Path $ERROR_LOG -Value "[R packages] $($_.Exception.Message)`n$($_.ScriptStackTrace)" -Encoding UTF8
+        $errMsg = $_.Exception.Message
+        $errStk = $_.ScriptStackTrace
+        Write-Log "ERROR installing R packages: $errMsg"
+        Write-Log "  Stack: $errStk"
+        Add-Content -Path $ERROR_LOG -Value "[R packages] $errMsg" -Encoding UTF8
+        Add-Content -Path $ERROR_LOG -Value $errStk                -Encoding UTF8
     }
 } else {
-    Write-Log "WARNING: Rscript not found — R packages not installed."
+    Write-Log "WARNING: Rscript not found - R packages not installed."
 }
 
 Write-Log "=== Dependency setup complete ==="
 Write-Log "Log files:"
-Write-Log "  Main log    : $LOG_FILE"
-Write-Log "  Transcript  : $TRANSCRIPT"
-Write-Log "  Error log   : $ERROR_LOG"
+Write-Log "  Main log   : $LOG_FILE"
+Write-Log "  Transcript : $TRANSCRIPT"
+Write-Log "  Error log  : $ERROR_LOG"
 
 Stop-Transcript | Out-Null
 
