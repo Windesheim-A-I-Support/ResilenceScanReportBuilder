@@ -106,7 +106,8 @@ function Refresh-Path {
 $rscriptBefore = Find-Rscript
 if (-not $rscriptBefore) {
     Write-Log "Downloading R $R_VERSION..."
-    $rUrl = "https://cran.r-project.org/bin/windows/base/R-$R_VERSION-win.exe"
+    # CRAN moves installers to /old/{ver}/ once a new minor series ships
+    $rUrl = "https://cran.r-project.org/bin/windows/base/old/$R_VERSION/R-$R_VERSION-win.exe"
     $rTmp = "$TMP\R-$R_VERSION-win.exe"
     try {
         Write-Log "  URL: $rUrl"
