@@ -171,6 +171,7 @@ jobs:
             --add-data "references.bib;." `
             --add-data "QTDublinIrish.otf;." `
             --add-data "packaging/setup_dependencies.ps1;." `
+            --add-data "packaging/launch_setup.ps1;." `
             app/main.py
 
       - name: Install NSIS
@@ -226,12 +227,15 @@ jobs:
               File /r "{bundle}\\"
               CreateShortcut "$DESKTOP\\{repo}.lnk" "$INSTDIR\\{repo}.exe"
               WriteUninstaller "$INSTDIR\\Uninstall.exe"
-              ; Launch dependency setup in the background so the installer finishes immediately.
-              ; R + Quarto + TinyTeX + R packages are downloaded and installed after the user
-              ; clicks Finish. Progress is logged to %ProgramData%\ResilienceScan\setup.log
-              DetailPrint "Launching background dependency setup (R, Quarto, TinyTeX)..."
-              DetailPrint "Monitor progress: %ProgramData%\ResilienceScan\setup.log"
-              Exec '"$WINDIR\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -ExecutionPolicy Bypass -WindowStyle Hidden -File "$INSTDIR\\setup_dependencies.ps1" -InstallDir "$INSTDIR"'
+              ; Run launch_setup.ps1 synchronously (takes < 1 second).
+              ; It registers a Task Scheduler task that runs setup_dependencies.ps1
+              ; as SYSTEM — guaranteed elevated, no UAC prompts, no policy blocks.
+              ; The heavy setup (R, Quarto, TinyTeX, R packages) then runs in the
+              ; background. Progress: C:\ProgramData\ResilienceScan\setup.log
+              DetailPrint "Scheduling background dependency setup (R, Quarto, TinyTeX)..."
+              DetailPrint "Progress: C:\ProgramData\ResilienceScan\setup.log"
+              nsExec::ExecToLog '$WINDIR\\System32\\WindowsPowerShell\\v1.0\\powershell.exe -ExecutionPolicy Bypass -NonInteractive -File "$INSTDIR\\launch_setup.ps1" -InstallDir "$INSTDIR"'
+              Pop $0
             SectionEnd
             Section "Uninstall"
               Delete "$DESKTOP\\{repo}.lnk"
