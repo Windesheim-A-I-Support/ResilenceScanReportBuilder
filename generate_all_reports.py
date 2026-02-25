@@ -193,10 +193,10 @@ def generate_reports():
                 print(f"   [ERROR] Failed (exit code: {result.returncode})")
                 print("   [SAMPLE] Error output:")
                 if result.stderr:
-                    # Show last 1000 chars of error for readability
+                    # Show first 2000 chars so root cause error is visible
                     error_text = (
-                        result.stderr[-1000:]
-                        if len(result.stderr) > 1000
+                        result.stderr[:2000]
+                        if len(result.stderr) > 2000
                         else result.stderr
                     )
                     print(f"   {error_text}")
