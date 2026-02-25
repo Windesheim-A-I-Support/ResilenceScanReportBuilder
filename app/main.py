@@ -2289,10 +2289,21 @@ TOP 10 MOST ENGAGED COMPANIES:
             )
             self.status_label.config(text=f"Generating: {company} - {person}")
 
+            # Build env — inject R_LIBS so R finds packages in the bundled
+            # r-library/ dir installed by the setup script.
+            single_env = os.environ.copy()
+            r_lib = _r_library_path()
+            if r_lib is not None and r_lib.exists():
+                existing = single_env.get("R_LIBS", "")
+                single_env["R_LIBS"] = (
+                    f"{r_lib}{os.pathsep}{existing}" if existing else str(r_lib)
+                )
+
             # Execute quarto render — cwd=_DATA_ROOT so quarto writes .quarto/
             # there (writable) and R finds data/cleaned_master.csv correctly.
             result = subprocess.run(
-                cmd, cwd=str(_DATA_ROOT), capture_output=True, text=True, timeout=300
+                cmd, cwd=str(_DATA_ROOT), capture_output=True, text=True,
+                timeout=300, env=single_env,
             )
 
             if result.returncode == 0:
