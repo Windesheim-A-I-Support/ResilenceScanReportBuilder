@@ -184,17 +184,27 @@ if (-not $quartoPath) {
 
 # ---- TinyTeX ----------------------------------------------------------------
 # quarto install tinytex installs to the current user's (SYSTEM's) APPDATA.
-# After install we locate the bin dir, grant other users read+execute access,
-# and add it to the machine-wide PATH so regular users find tlmgr/pdflatex.
+# Quarto 1.4+ uses %APPDATA%\quarto\tools\tinytex\; older versions used
+# %APPDATA%\TinyTeX\ directly.  After install we locate the bin dir, grant
+# other users read+execute access, and add it to machine-wide PATH so regular
+# users can find tlmgr/lualatex.
 $tlmgr = Get-Command tlmgr -ErrorAction SilentlyContinue
 if (-not $tlmgr) {
     Write-Log "Installing TinyTeX via Quarto..."
     try {
         & quarto install tinytex --no-prompt 2>&1 | ForEach-Object { Write-Log "  [quarto] $_" }
 
-        # Find where quarto put TinyTeX (varies by account)
+        # Find where quarto put TinyTeX (varies by account and quarto version).
+        # Quarto 1.4+ installs to quarto\tools\tinytex\; older versions to TinyTeX\.
         $tinyTexBin = $null
         $candidates = @(
+            # Quarto 1.4+ tools dir (current account — SYSTEM when this script runs)
+            "$env:APPDATA\quarto\tools\tinytex\bin\windows",
+            "$env:LOCALAPPDATA\quarto\tools\tinytex\bin\windows",
+            # Hardcoded SYSTEM profile quarto tools (in case env vars not set)
+            "C:\Windows\system32\config\systemprofile\AppData\Roaming\quarto\tools\tinytex\bin\windows",
+            "C:\Windows\system32\config\systemprofile\AppData\Local\quarto\tools\tinytex\bin\windows",
+            # Legacy standalone TinyTeX location (older quarto / direct install)
             "$env:LOCALAPPDATA\TinyTeX\bin\windows",
             "$env:APPDATA\TinyTeX\bin\windows",
             "C:\Windows\system32\config\systemprofile\AppData\Local\TinyTeX\bin\windows",

@@ -118,12 +118,22 @@ def _find_tlmgr() -> str | None:
         return exe
     if sys.platform == "win32":
         candidates = [
-            # SYSTEM profile — where 'quarto install tinytex' lands when run as SYSTEM
+            # Quarto 1.4+ tools dir — where 'quarto install tinytex' puts TinyTeX
+            os.path.join(
+                os.environ.get("APPDATA", ""),
+                r"quarto\tools\tinytex\bin\windows\tlmgr.bat",
+            ),
+            os.path.join(
+                os.environ.get("LOCALAPPDATA", ""),
+                r"quarto\tools\tinytex\bin\windows\tlmgr.bat",
+            ),
+            # SYSTEM account quarto tools dir (setup runs as SYSTEM)
+            r"C:\Windows\System32\config\systemprofile\AppData\Roaming\quarto\tools\tinytex\bin\windows\tlmgr.bat",
+            r"C:\Windows\System32\config\systemprofile\AppData\Local\quarto\tools\tinytex\bin\windows\tlmgr.bat",
+            # Legacy standalone TinyTeX location (older quarto / direct install)
             r"C:\Windows\System32\config\systemprofile\AppData\Local\TinyTeX\bin\windows\tlmgr.bat",
             r"C:\Windows\System32\config\systemprofile\AppData\Roaming\TinyTeX\bin\windows\tlmgr.bat",
-            # Quarto may nest it under Programs\ in some versions
             r"C:\Windows\System32\config\systemprofile\AppData\Local\Programs\TinyTeX\bin\windows\tlmgr.bat",
-            # Current user profiles (LOCALAPPDATA first — Quarto default)
             os.path.join(
                 os.environ.get("LOCALAPPDATA", ""), r"TinyTeX\bin\windows\tlmgr.bat"
             ),
@@ -137,6 +147,17 @@ def _find_tlmgr() -> str | None:
         ]
         for c in candidates:
             if c and os.path.exists(c):
+                return c
+    elif sys.platform.startswith("linux") or sys.platform == "darwin":
+        # Quarto 1.4+ tools dir on Linux/Mac
+        home = str(Path.home())
+        linux_candidates = [
+            os.path.join(home, ".local/share/quarto/tools/tinytex/bin/x86_64-linux/tlmgr"),
+            os.path.join(home, ".local/share/quarto/tools/tinytex/bin/aarch64-linux/tlmgr"),
+            os.path.join(home, "Library/Application Support/quarto/tools/tinytex/bin/universal-darwin/tlmgr"),
+        ]
+        for c in linux_candidates:
+            if os.path.exists(c):
                 return c
     return None
 
