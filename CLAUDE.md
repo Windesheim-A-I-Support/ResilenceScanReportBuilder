@@ -164,24 +164,34 @@ emails via Outlook COM (Windows) or SMTP fallback (Office365)
 - CI `update-readme` job patches links after each release and commits `[skip ci]`
 - **Gate:** ✅ README updated by CI with correct v0.21.0 download URLs
 
-### ✅ M15 — Fix quarto .quarto/ PermissionDenied in frozen app (v0.21.4)
-- **Root cause:** Quarto always creates a `.quarto/` scratch directory *next to the QMD file*.
-  In the frozen/installed app the QMD lives in `_internal/` (Windows: `Program Files\…\_internal\`;
-  Linux: `/opt/…/_internal/`) which is read-only for normal users → `PermissionDenied` on every render.
-- **Why not caught earlier:** All previous testing was dev-mode (`python app/main.py` from repo),
-  where `_asset_root() == _data_root() == repo root` (writable). The e2e CI also runs pipeline scripts
-  directly, never the frozen binary. Report generation from an installed binary was never tested.
-- **Fix:** `_sync_template()` in `app/main.py` — copies `ResilienceReport.qmd` + `img/`, `tex/`,
-  `_extensions/`, `references.bib`, `QTDublinIrish.otf` from `_asset_root()` to `_data_root()` at
-  startup (frozen mode only). Only re-copies when source QMD is newer (post-update). Both render
-  subprocess calls now use `cwd=str(_DATA_ROOT)` and `selected_template = _DATA_ROOT / ...`.
-- **Bonus fix:** `stderr[:2000]` (was `[-500:]`) so the root cause error appears in the log.
-- **Confirmed on Linux** by reproducing the exact failure with a read-only `fake_internal/` dir,
-  then confirming success after running `_sync_template()` logic.
+### ✅ M15 — Fix frozen app render failures (v0.21.4 – v0.21.7)
+**v0.21.4 — quarto .quarto/ PermissionDenied**
+- **Root cause:** Quarto creates `.quarto/` next to the QMD. In frozen app the QMD is in `_internal/`
+  (Windows: `Program Files\…\_internal\`; Linux: `/opt/…/_internal\`) — read-only → PermissionDenied.
+- **Fix:** `_sync_template()` copies QMD + `img/`, `tex/`, `_extensions/`, `references.bib`,
+  `QTDublinIrish.otf` from `_asset_root()` to `_data_root()` at startup (frozen only, skips if already
+  up-to-date by mtime). Both render calls use `cwd=str(_DATA_ROOT)` and `selected_template = _DATA_ROOT / ...`.
+- `stderr[:2000]` (was `[-500:]`) so root-cause error is visible in logs, not just the JS stack tail.
+- Confirmed on Linux by reproducing `PermissionDenied: mkdir _internal/.quarto` with a read-only dir.
+
+**v0.21.5 — TinyTeX detection for Quarto 1.4+**
+- Quarto 1.4+ installs TinyTeX to `%APPDATA%\quarto\tools\tinytex\` (Windows) / `~/.local/share/quarto/tools/tinytex/` (Linux), not the legacy `TinyTeX\` location.
+- Fixed in `gui_system_check._find_tlmgr()` (new candidates first), `setup_dependencies.ps1`, and `setup_linux.sh` (arch-dynamic path).
+
+**v0.21.6 — e2e Windows TinyTeX PATH + stderr from start**
+- `quarto install tinytex` only sets PATH for its own process. Added 'Add TinyTeX to PATH (Windows)' step in `e2e.yml` that writes the TinyTeX bin dir to `$GITHUB_PATH`.
+- `generate_all_reports.py`: `stderr[:2000]` (was `[-1000:]`).
+
+**v0.21.7 — R_LIBS missing from generate-single**
+- `generate_single` was calling `subprocess.run` without `env=` so `R_LIBS` was never set.
+- Single-report generation would fail to find R packages in the bundled `r-library/` while generate-all worked fine (it already built `gen_env`).
+- Fix: build `single_env` with `R_LIBS` the same way generate-all does.
+
+- **Why not caught earlier:** Dev mode + e2e both use system-wide R packages; bundled `r-library/` path only matters in the frozen installed app.
 - **Gate:** Installed app generates correct PDF from real .xlsx on Windows ⏳ *pending Windows test*
 
 ---
 
 ## Next milestones
 
-*Awaiting Windows test of v0.21.4 installed app — M15 gate (report generation). New milestones added based on bugs found.*
+*Awaiting Windows test of v0.21.7 installed app — M15 gate (report generation without errors). New milestones added based on bugs found.*
