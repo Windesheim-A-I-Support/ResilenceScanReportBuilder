@@ -1084,7 +1084,6 @@ class ResilienceScanGUI:
             font=("Arial", 9),
             fg="#0066cc",
             cursor="hand2",
-            bg=status_frame.cget("background"),
         )
         self._update_label.grid(row=0, column=1, sticky=tk.W, padx=10)
 
