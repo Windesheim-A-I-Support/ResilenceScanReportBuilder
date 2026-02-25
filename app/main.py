@@ -107,7 +107,10 @@ class ResilienceScanGUI:
 
     def __init__(self, root):
         self.root = root
-        self.root.title("ResilienceScan Control Center")
+        from update_checker import _current_version
+
+        _APP_VERSION = _current_version()
+        self.root.title(f"ResilienceScan Control Center  v{_APP_VERSION}")
         self.root.geometry("1200x800")
         self.root.minsize(1000, 600)
 
@@ -203,9 +206,11 @@ class ResilienceScanGUI:
         )
         title_label.grid(row=0, column=0, sticky=tk.W)
 
+        from update_checker import _current_version
+
         subtitle_label = ttk.Label(
             header_frame,
-            text="Supply Chain Resilience Assessment Management System",
+            text=f"Supply Chain Resilience Assessment Management System  •  v{_current_version()}",
             font=("Arial", 10),
         )
         subtitle_label.grid(row=1, column=0, sticky=tk.W)
@@ -4115,9 +4120,11 @@ TOP 10 MOST ENGAGED COMPANIES:
 
     def show_about(self):
         """Show about dialog"""
-        about_text = """
+        from update_checker import _current_version
+
+        about_text = f"""
 ResilienceScan Control Center
-Version 1.0
+Version {_current_version()}
 
 A graphical interface for managing supply chain resilience assessments.
 
