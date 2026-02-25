@@ -107,21 +107,32 @@ def _find_tlmgr() -> str | None:
     TinyTeX is installed into the SYSTEM account's AppData when setup runs as
     SYSTEM, so we check that profile path explicitly alongside the current
     user's profile.
+
+    On Windows, tlmgr is a .bat file.  shutil.which may miss it if PATHEXT
+    is not inherited correctly in the frozen app, so we also try the explicit
+    .bat extension and a set of hardcoded fallback paths.
     """
-    exe = shutil.which("tlmgr")
+    # Try PATH first — explicit .bat extension in case PATHEXT is stripped
+    exe = shutil.which("tlmgr") or shutil.which("tlmgr.bat")
     if exe:
         return exe
     if sys.platform == "win32":
         candidates = [
             # SYSTEM profile — where 'quarto install tinytex' lands when run as SYSTEM
-            r"C:\Windows\System32\config\systemprofile\AppData\Roaming\TinyTeX\bin\windows\tlmgr.bat",
             r"C:\Windows\System32\config\systemprofile\AppData\Local\TinyTeX\bin\windows\tlmgr.bat",
-            # Current user profiles
+            r"C:\Windows\System32\config\systemprofile\AppData\Roaming\TinyTeX\bin\windows\tlmgr.bat",
+            # Quarto may nest it under Programs\ in some versions
+            r"C:\Windows\System32\config\systemprofile\AppData\Local\Programs\TinyTeX\bin\windows\tlmgr.bat",
+            # Current user profiles (LOCALAPPDATA first — Quarto default)
+            os.path.join(
+                os.environ.get("LOCALAPPDATA", ""), r"TinyTeX\bin\windows\tlmgr.bat"
+            ),
             os.path.join(
                 os.environ.get("APPDATA", ""), r"TinyTeX\bin\windows\tlmgr.bat"
             ),
             os.path.join(
-                os.environ.get("LOCALAPPDATA", ""), r"TinyTeX\bin\windows\tlmgr.bat"
+                os.environ.get("LOCALAPPDATA", ""),
+                r"Programs\TinyTeX\bin\windows\tlmgr.bat",
             ),
         ]
         for c in candidates:
@@ -270,7 +281,12 @@ class SystemChecker:
                 status="NOT FOUND",
                 description="tlmgr is not on PATH — run: quarto install tinytex",
             )
-        _, out = _run([tlmgr, "--version"])
+        # .bat files on Windows need cmd /c to execute correctly via subprocess
+        if sys.platform == "win32" and tlmgr.lower().endswith(".bat"):
+            cmd = ["cmd", "/c", tlmgr, "--version"]
+        else:
+            cmd = [tlmgr, "--version"]
+        _, out = _run(cmd)
         version = out.splitlines()[0] if out else "unknown"
         return self._record("[OK] TinyTeX", ok=True, status=version)
 

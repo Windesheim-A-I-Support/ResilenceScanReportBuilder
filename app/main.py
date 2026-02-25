@@ -2213,12 +2213,13 @@ TOP 10 MOST ENGAGED COMPANIES:
                     return
 
             # Build quarto command
-            # Use absolute path for --output so the temp PDF lands in the
-            # writable REPORTS_DIR, not in ROOT_DIR which may be read-only
-            # when the app is installed under Program Files / /opt/.
+            # --output must be a bare filename (no path separators) — Quarto
+            # 1.6.x rejects any path component in --output.  Use --output-dir
+            # to redirect the PDF to the writable REPORTS_DIR.
             selected_template = ROOT_DIR / self.template_var.get()
             REPORTS_DIR.mkdir(parents=True, exist_ok=True)
-            temp_path = REPORTS_DIR / f"temp_{safe_company}_{safe_person}.pdf"
+            temp_name = f"temp_{safe_company}_{safe_person}.pdf"
+            temp_path = REPORTS_DIR / temp_name
             cmd = [
                 "quarto",
                 "render",
@@ -2234,7 +2235,9 @@ TOP 10 MOST ENGAGED COMPANIES:
                 "--to",
                 "pdf",
                 "--output",
-                str(temp_path),
+                temp_name,
+                "--output-dir",
+                str(REPORTS_DIR),
             ]
 
             self.log_gen(
@@ -2528,11 +2531,13 @@ TOP 10 MOST ENGAGED COMPANIES:
                     continue
 
                 # Build quarto command using selected template with both company and person
-                # Use absolute path for --output so the temp PDF lands in the
-                # writable REPORTS_DIR, not in ROOT_DIR which may be read-only.
+                # --output must be a bare filename (no path separators) — Quarto
+                # 1.6.x rejects any path component in --output.  Use --output-dir
+                # to redirect the PDF to the writable REPORTS_DIR.
                 selected_template = ROOT_DIR / self.template_var.get()
                 REPORTS_DIR.mkdir(parents=True, exist_ok=True)
-                temp_path = REPORTS_DIR / f"temp_{safe_company}_{safe_person}.pdf"
+                temp_name = f"temp_{safe_company}_{safe_person}.pdf"
+                temp_path = REPORTS_DIR / temp_name
                 cmd = [
                     "quarto",
                     "render",
@@ -2548,7 +2553,9 @@ TOP 10 MOST ENGAGED COMPANIES:
                     "--to",
                     "pdf",
                     "--output",
-                    str(temp_path),
+                    temp_name,
+                    "--output-dir",
+                    str(REPORTS_DIR),
                 ]
 
                 # Build subprocess environment — inject R_LIBS if frozen so
