@@ -41,3 +41,6 @@ config.yml
 *.p12
 *.pfx
 *.key
+
+/.quarto/
+**/*.quarto_ipynb

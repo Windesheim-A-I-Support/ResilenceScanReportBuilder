@@ -14,6 +14,7 @@ import tkinter as tk
 from tkinter import ttk, scrolledtext, messagebox, filedialog
 import pandas as pd
 import os
+import shutil
 import subprocess
 import threading
 import queue
@@ -67,11 +68,46 @@ def _data_root() -> Path:
     return Path(__file__).resolve().parents[1]
 
 
-ROOT_DIR = _asset_root()  # quarto cwd + template — points at QMD assets
+def _sync_template() -> None:
+    """Copy QMD and companion assets from _asset_root() to _data_root().
+
+    In the frozen app the QMD lives in _internal/ (under Program Files) which
+    is read-only for normal users.  Quarto always creates a .quarto/ scratch
+    directory *next to the QMD file*, so it needs to be in a writable location.
+    Copying to _data_root() (APPDATA/ResilienceScan) fixes this.
+
+    In dev mode _asset_root() == _data_root() so no copy is needed.
+    Only re-copies when the source QMD is newer than the destination (i.e. after
+    an app update).
+    """
+    if not getattr(sys, "frozen", False):
+        return
+    src = _asset_root()
+    dst = _data_root()
+    dst.mkdir(parents=True, exist_ok=True)
+    src_qmd = src / "ResilienceReport.qmd"
+    dst_qmd = dst / "ResilienceReport.qmd"
+    if dst_qmd.exists() and src_qmd.exists() and src_qmd.stat().st_mtime <= dst_qmd.stat().st_mtime:
+        return  # already up-to-date
+    for name in ("ResilienceReport.qmd", "references.bib", "QTDublinIrish.otf"):
+        s = src / name
+        if s.exists():
+            shutil.copy2(str(s), str(dst / name))
+    for dname in ("img", "tex", "_extensions"):
+        s = src / dname
+        d = dst / dname
+        if s.exists():
+            if d.exists():
+                shutil.rmtree(str(d))
+            shutil.copytree(str(s), str(d))
+
+
+ROOT_DIR = _asset_root()  # read-only assets (_internal/ when frozen)
 _DATA_ROOT = _data_root()  # data/, reports/, logs — always writable
+_sync_template()  # copy QMD + assets to _DATA_ROOT so quarto can write .quarto/ next to them
 DATA_FILE = _DATA_ROOT / "data" / "cleaned_master.csv"
 REPORTS_DIR = _DATA_ROOT / "reports"
-TEMPLATE = ROOT_DIR / "ResilienceReport.qmd"
+TEMPLATE = _DATA_ROOT / "ResilienceReport.qmd"  # must be in writable _DATA_ROOT, not ROOT_DIR
 LOG_FILE = _DATA_ROOT / "gui_log.txt"
 
 
@@ -2221,7 +2257,10 @@ TOP 10 MOST ENGAGED COMPANIES:
             # --output must be a bare filename (no path separators) — Quarto
             # 1.6.x rejects any path component in --output.  Use --output-dir
             # to redirect the PDF to the writable REPORTS_DIR.
-            selected_template = ROOT_DIR / self.template_var.get()
+            # Use _DATA_ROOT for template path: quarto creates .quarto/ next to
+            # the QMD and _internal/ (ROOT_DIR when frozen) is read-only under
+            # Program Files.  _sync_template() copied the QMD there at startup.
+            selected_template = _DATA_ROOT / self.template_var.get()
             REPORTS_DIR.mkdir(parents=True, exist_ok=True)
             temp_name = f"temp_{safe_company}_{safe_person}.pdf"
             temp_path = REPORTS_DIR / temp_name
@@ -2250,9 +2289,10 @@ TOP 10 MOST ENGAGED COMPANIES:
             )
             self.status_label.config(text=f"Generating: {company} - {person}")
 
-            # Execute quarto render
+            # Execute quarto render — cwd=_DATA_ROOT so quarto writes .quarto/
+            # there (writable) and R finds data/cleaned_master.csv correctly.
             result = subprocess.run(
-                cmd, cwd=ROOT_DIR, capture_output=True, text=True, timeout=300
+                cmd, cwd=str(_DATA_ROOT), capture_output=True, text=True, timeout=300
             )
 
             if result.returncode == 0:
@@ -2324,7 +2364,7 @@ TOP 10 MOST ENGAGED COMPANIES:
                     f"[ERROR] Quarto render failed with exit code {result.returncode}"
                 )
                 if result.stderr:
-                    self.log_gen(f"stderr: {result.stderr[-500:]}")
+                    self.log_gen(f"stderr: {result.stderr[:2000]}")
                 messagebox.showerror(
                     "Generation Failed",
                     f"Report generation failed.\n\nCheck logs for details.",
@@ -2539,7 +2579,7 @@ TOP 10 MOST ENGAGED COMPANIES:
                 # --output must be a bare filename (no path separators) — Quarto
                 # 1.6.x rejects any path component in --output.  Use --output-dir
                 # to redirect the PDF to the writable REPORTS_DIR.
-                selected_template = ROOT_DIR / self.template_var.get()
+                selected_template = _DATA_ROOT / self.template_var.get()
                 REPORTS_DIR.mkdir(parents=True, exist_ok=True)
                 temp_name = f"temp_{safe_company}_{safe_person}.pdf"
                 temp_path = REPORTS_DIR / temp_name
@@ -2573,10 +2613,11 @@ TOP 10 MOST ENGAGED COMPANIES:
                         f"{r_lib}{os.pathsep}{existing}" if existing else str(r_lib)
                     )
 
-                # Execute quarto render — stream stdout line-by-line to the log
+                # Execute quarto render — cwd=_DATA_ROOT so quarto writes
+                # .quarto/ there (writable) and R finds data/ correctly.
                 self._gen_proc = subprocess.Popen(
                     cmd,
-                    cwd=ROOT_DIR,
+                    cwd=str(_DATA_ROOT),
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
                     text=True,
