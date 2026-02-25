@@ -10,7 +10,7 @@ python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
 # Run the GUI (main application)
-python ResilienceScanGUI.py
+python app/main.py
 
 # Run pipeline steps individually
 python clean_data.py                 # clean data/cleaned_master.csv in-place
@@ -18,15 +18,16 @@ python generate_all_reports.py       # render one PDF per row → reports/
 python validate_reports.py           # validate generated PDFs against CSV values
 python send_email.py                 # send PDFs (TEST_MODE=True by default)
 
-# Run the template app (CI/packaging scaffold only)
-python app/main.py
-
 # Lint and test (CI)
 pip install pytest ruff pyyaml PyPDF2
 ruff check .
 ruff format --check .
 pytest
 pytest tests/test_smoke.py::test_import_main_module   # single test
+pytest tests/test_pipeline_sample.py                  # anonymised fixture tests
+
+# Regenerate the anonymised test fixture
+python scripts/make_sample_data.py
 ```
 
 ## Release workflow
@@ -37,25 +38,34 @@ Bump `version` in `pyproject.toml` and push to `main`. CI detects no git tag `v<
 
 ## Architecture
 
-`ResilienceScanGUI.py` is a native Tkinter desktop application. It directly imports the Python pipeline modules and calls `quarto render` as a subprocess.
+`app/main.py` is the canonical entry point (Tkinter GUI + PyInstaller target).
 
 ```
-ResilienceScanGUI.py
-  ├── imports convert_data          → Excel → data/cleaned_master.csv
+app/main.py
+  ├── imports convert_data          → Excel/.xlsx → data/cleaned_master.csv
   ├── imports clean_data            → cleans and validates CSV in-place
   ├── imports email_tracker         → tracks per-recipient send status
   ├── imports gui_system_check      → verifies R/Quarto/TinyTeX are present at runtime
-  └── imports dependency_manager    → (stub only — installation handled by the installer)
+  ├── imports update_checker        → background GitHub release check
+  └── imports dependency_manager    → stub (installation handled by the installer)
 ```
 
-`ResilienceScanGUI.py` (project root) is the development entry point. The content will be moved into `app/main.py` as the canonical entry point and PyInstaller target — the CI already points there. When moved, `ROOT_DIR` must use `Path(__file__).resolve().parents[1]` (one level up from `app/`) so that `data/`, `reports/`, and sibling scripts are resolved correctly.
+### Path resolution (frozen vs dev)
+
+| Variable | Dev | Frozen (installed) |
+|----------|-----|--------------------|
+| `ROOT_DIR` / `_asset_root()` | repo root | `sys._MEIPASS` (`_internal/`) |
+| `_DATA_ROOT` / `_data_root()` | repo root | `%APPDATA%\ResilienceScan` / `~/.local/share/resiliencescan` |
+| `DATA_FILE` | `repo/data/cleaned_master.csv` | `APPDATA/data/cleaned_master.csv` |
+| `REPORTS_DIR` | `repo/reports/` | `APPDATA/reports/` |
+| `TEMPLATE` | `repo/ResilienceReport.qmd` | `_internal/ResilienceReport.qmd` |
 
 ---
 
 ## Pipeline flow
 
 ```
-data/*.xlsx
+data/*.xlsx  (or .xml)
      │ convert_data.py
      ▼
 data/cleaned_master.csv
@@ -80,210 +90,82 @@ emails via Outlook COM (Windows) or SMTP fallback (Office365)
 
 ## Packaging strategy
 
-**Staged installer** — the installer itself silently downloads and sets up all dependencies (R, Quarto, TinyTeX, R packages) during installation. The user sees a normal setup wizard and nothing needs to be manually installed.
+**Staged installer** — the installer silently downloads and sets up all dependencies (R, Quarto, TinyTeX, R packages) during installation.
 
-`ResilienceReport.qmd` is deeply LaTeX-dependent (TikZ, kableExtra, custom titlepage/coverpage extensions, custom fonts, raw `.tex` include files). The PDF engine **cannot** be switched to Typst or WeasyPrint — TinyTeX is required to preserve the output exactly.
+`ResilienceReport.qmd` is deeply LaTeX-dependent (TikZ, kableExtra, custom titlepage extension, custom fonts, raw `.tex` includes). The PDF engine **cannot** be switched to Typst or WeasyPrint — TinyTeX is required.
 
-### How it works
+### Pinned dependency versions
 
-1. **PyInstaller** bundles the Python app and all Python packages into a single binary (~50 MB)
-2. **The installer** (NSIS on Windows, post-install script on Linux) silently downloads and installs at setup time:
-   - R 4.3.2
-   - Quarto 1.6.39
-   - TinyTeX + required LaTeX packages
-   - Required R packages (installed into a local library alongside the app)
-3. **At runtime**, `gui_system_check.py` verifies all components are present and shows a clear error if something is missing (e.g. installation was interrupted)
+| Dependency | Version | Notes |
+|------------|---------|-------|
+| R | 4.3.2 | CRAN `/old/` archive URL |
+| Quarto | 1.6.39 | GitHub releases |
+| TinyTeX | Quarto-pinned | `quarto install tinytex` |
+| Python | ≥ 3.11 | bundled by PyInstaller |
 
-### Artifacts
-
-| Platform | Installer | Size (approx) | Notes |
-|----------|-----------|---------------|-------|
-| Windows | NSIS `.exe` | ~200 MB download, ~600 MB installed | Requires internet during install; Outlook COM available |
-| Linux | `.deb` / `.rpm` / `.AppImage` | ~200 MB download, ~600 MB installed | Post-install script runs setup; SMTP only |
-
-### R packages required by `ResilienceReport.qmd`
+### R packages
 
 `readr`, `dplyr`, `stringr`, `tidyr`, `ggplot2`, `knitr`, `fmsb`, `scales`, `viridis`, `patchwork`, `RColorBrewer`, `gridExtra`, `png`, `lubridate`, `kableExtra`, `rmarkdown`, `jsonlite`, `ggrepel`, `cowplot`
 
-### LaTeX packages required by `ResilienceReport.qmd`
+### LaTeX packages (tlmgr names)
 
-`geometry`, `pdflscape`, `afterpage`, `graphicx`, `float`, `array`, `booktabs`, `longtable`, `multirow`, `wrapfig`, `colortbl`, `tabu`, `threeparttable`, `threeparttablex`, `ulem`, `makecell`, `xcolor`, `tikz`
+`pgf`, `xcolor`, `colortbl`, `booktabs`, `multirow`, `float`, `wrapfig`, `pdflscape`, `geometry`, `preprint`, `graphics`, `tabu`, `threeparttable`, `threeparttablex`, `ulem`, `makecell`, `environ`, `trimspaces`, `caption`, `hyperref`, `setspace`, `fancyhdr`, `microtype`, `lm`, `needspace`, `varwidth`, `mdwtools`, `xstring`, `tools`
 
-### Pinned versions
-
-- R: **4.3.2**
-- Quarto: **1.6.39**
-- TinyTeX: installed via `quarto install tinytex` (uses Quarto-pinned version)
-
----
-
-## Known issues
-
-| Issue | Location | Fix |
-|-------|----------|-----|
-| CI action versions all wrong (`@v6` doesn't exist) | `ci.yml` | `checkout@v4`, `setup-python@v5`, `upload-artifact@v4`, `download-artifact@v4` |
-| CI builds wrong app (PySide6 placeholder) | `ci.yml` | Replace entry point with `app/main.py` after GUI is moved there |
-| `img/` directory | ✓ resolved | All required images present (`corner-bg.png`, `logo.png`, `otter-bar.jpeg`) |
-| `_extensions/` (Quarto titlepage) | ✓ resolved | `nmfs-opensci/titlepage` extension present and committed |
-| `references.bib` | ✓ resolved | Present at repo root |
-| `QTDublinIrish.otf` | ✓ resolved | Present at repo root and inside `_extensions/` font dirs |
-| Hardcoded Docker paths `/app/data/`, `/app/outputs/` | `clean_data.py`, `clean_data_enhanced.py`, `generate_single_report.py` | Replace with user data directory paths |
-| Two cleaning scripts with diverging logic | `clean_data.py`, `clean_data_enhanced.py` | Merge into `clean_data.py`, delete `clean_data_enhanced.py` |
-| GUI imports `clean_data_enhanced` directly | `ResilienceScanGUI.py:1113` | Switch to `clean_data` after merge |
-| Missing modules the GUI imports | `convert_data`, `email_tracker`, `gui_system_check`, `dependency_manager` | Create stubs in M1, full implementations in later milestones |
-| `validate_reports.py` reads `validation_results.json` that nothing writes | `validate_reports.py` | Use `validate_single_report.py` as shared logic; derive values from CSV |
-| `validate_pipeline_docker.py` is Docker-specific and obsolete | — | Delete |
-| Installed app cannot write to `Program Files` / `/usr/bin/` | all scripts | User data (`data/`, `reports/`, `config.yml`) must go to `%APPDATA%` / `~/.local/share/` |
-| PyInstaller `--onefile` breaks path resolution for data files | `ci.yml` | Switch to `--onedir` |
-| `data/`, `reports/`, `config.yml` not in `.gitignore` | `.gitignore` | Add — respondent data must not be committed |
+**Note:** `capt-of` is NOT installed via tlmgr (tar extraction fails on fresh TinyTeX). A minimal `capt-of.sty` stub is written directly by `setup_dependencies.ps1` / `setup_linux.sh` and registered with `mktexlsr`.
 
 ---
 
 ## Working rule
 
-**Do not start the next milestone until the current one is fully verified by its gate condition.** Each gate must pass on a clean run before any work on the next milestone begins. If a gate fails, fix it before moving on — do not carry broken behaviour forward.
+**Do not start the next milestone until the current one is fully verified by its gate condition.** Each gate must pass on a clean run before any work on the next milestone begins.
 
 ---
 
-## Task list — milestones (CD: pipeline ships a real installer after every milestone)
+## Milestones
 
-### MILESTONE 1 — Fix the CI and ship the real app ✅ DONE (v0.13.0)
-- [x] Fix action versions, remove macOS, switch to `--onedir`, fix system libs, update requirements
-- [x] Create stub modules, move GUI to `app/main.py`, add `--add-data` flags, update tests
-- [x] User-writable data directories (`%APPDATA%\ResilienceScan` / `~/.local/share/resiliencescan`)
-- [x] Housekeeping (`.gitignore`, delete docker scripts)
-- **Gate:** ✅ CI green, Windows installer + Linux packages on GitHub Release
+### ✅ M1 — Fix CI, ship real app (v0.13.0)
+### ✅ M2 — Fix paths, consolidate cleaners (v0.14.0)
+### ✅ M3 — Implement data conversion (v0.15.0)
+### ✅ M4 — End-to-end report generation (v0.16.0)
+### ✅ M5 — Fix validation + email tracker (v0.17.0)
+### ✅ M6 — Email sending (v0.18.0)
+### ✅ M7 — Startup system check guard (v0.19.0)
+### ✅ M8 — Complete installer: R + Quarto + TinyTeX (v0.20.5)
+### ✅ M9 — Fix Windows installer: R path, LaTeX packages, capt-of (v0.20.14)
+- R path: forward-slash conversion (`$R_LIB_R`) + single-quoted R package names in PS5.1
+- LaTeX: corrected tlmgr package names; capt-of via stub + mktexlsr
+- Startup guard: reads PATH from Windows registry + hardcoded fallbacks
+- **Gate:** Fresh Windows VM — startup guard passes, all 19 R packages install, quarto render produces PDF ⏳ *pending re-test on v0.21.x build*
 
-### MILESTONE 2 — Fix paths and consolidate cleaning scripts ✅ DONE (v0.14.0)
-- [x] Merge `clean_data_enhanced.py` into `clean_data.py`, fix all Docker paths, delete enhanced script
-- [x] Fix `generate_single_report.py` and `generate_all_reports.py` paths
-- **Gate:** ✅ `python clean_data.py` completes on real CSV, installer ships
+### ✅ M10 — Fix report generation in installed app (v0.21.0)
+- File picker now accepts `.xlsx`/`.xls`; auto-copies + converts before loading
+- Frozen path split: `_asset_root()` (QMD/images → `sys._MEIPASS`) vs `_data_root()` (CSV/reports/logs → APPDATA)
+- Temp PDF output uses absolute `REPORTS_DIR` path (avoids writing to non-writable `_internal/`)
+- **Gate:** Installed app generates correct PDF from real .xlsx — ⏳ *pending Windows test*
 
-### MILESTONE 3 — Implement data conversion ✅ DONE (v0.15.0)
-- [x] Implement `convert_data.py` fully (Excel → CSV, preserves `reportsent`)
-- **Gate:** ✅ GUI "Convert Data" button works, installer ships
+### ✅ M11 — Anonymised sample dataset (v0.21.0)
+- `scripts/make_sample_data.py` + `tests/fixtures/sample_anonymized.xlsx` (3 fictional respondents)
+- `tests/test_pipeline_sample.py` — 6 tests, all pass
+- **Gate:** ✅ `pytest tests/test_pipeline_sample.py` passes on clean checkout
 
-### MILESTONE 4 — Verify end-to-end report generation ✅ DONE (v0.16.0)
-- [x] Pipeline verified locally (R 4.5.2, Quarto 1.8.27, TinyTeX)
-- [x] GUI Generation tab streams stdout, progress bar + Cancel work
-- **Gate:** ✅ GUI generates visually correct PDF, installer ships
+### ✅ M12 — End-to-end CI pipeline test (v0.21.0)
+- `.github/workflows/e2e.yml` — `workflow_dispatch`, ubuntu + windows matrix
+- Installs R/Quarto/TinyTeX, runs full pipeline on fixture, asserts PDFs produced
+- **Gate:** ⏳ *pending first manual trigger*
 
-### MILESTONE 5 — Fix validation ✅ DONE (v0.17.0)
-- [x] Rewrite `validate_reports.py` (no JSON dependency, uses `validate_single_report`)
-- [x] Implement `email_tracker.py` fully (persists to user data dir)
-- [x] Fix PyPDF2 μ→period extraction pattern
-- **Gate:** ✅ Validation pass rate ≥ 90%, installer ships
+### ✅ M13 — In-app update checker (v0.21.0)
+- `update_checker.py` — GitHub releases API, semver compare, daemon thread
+- Status bar shows clickable blue update link when newer version found
+- Fixed startup crash: removed `ttk.Frame.cget("background")` (v0.21.1)
+- **Gate:** ✅ App starts cleanly; update notification visible when version downgraded
 
-### MILESTONE 6 — Email sending ✅ DONE (v0.18.0)
-- [x] SMTP credentials in `config.yml` (writable user data dir), GUI Save Configuration button
-- [x] Fix pythoncom Linux crash (try/except ImportError)
-- [x] Wire `email_tracker.mark_sent()` / `mark_failed()` after each send
-- **Gate:** ✅ GUI sends test email with PDF attached, installer ships
+### ✅ M14 — README download badges (v0.21.0)
+- `Latest Release` shield badge + Downloads section with versioned links
+- CI `update-readme` job patches links after each release and commits `[skip ci]`
+- **Gate:** ✅ README updated by CI with correct v0.21.0 download URLs
 
-### MILESTONE 7 — Implement `gui_system_check.py` and startup guard ✅ DONE (v0.19.0)
-- [x] Full `gui_system_check.py` (checks R, Quarto, TinyTeX, all 19 R packages)
-- [x] `_startup_guard()` blocks launch with dialog if components missing
-- **Gate:** ✅ Removing Quarto from PATH triggers guard dialog, installer ships
+---
 
-### MILESTONE 8 — Complete the installer (R + Quarto + TinyTeX bundled setup) ✅ DONE (v0.20.5)
-- [x] `packaging/setup_dependencies.ps1` — Windows silent R/Quarto/TinyTeX/R-package install
-- [x] `packaging/setup_linux.sh` — Linux equivalent (DEBIAN_FRONTEND, system libs for kableExtra)
-- [x] `packaging/postinst.sh` — deferred launcher (nohup+disown avoids dpkg lock deadlock)
-- [x] NSIS installer runs PS1 via nsExec after extraction
-- [x] dpkg-deb builds .deb with postinst + setup_linux.sh bundled in `/opt/REPO_NAME/`
-- [x] `_r_library_path()` + R_LIBS injection in quarto render subprocess
-- [x] TinyTeX binaries symlinked to `/usr/local/bin` via `$HOME/.TinyTeX/bin/x86_64-linux`
-- **Gate:** ✅ Docker Ubuntu 22.04 fresh-machine test: R 4.5.2 + Quarto 1.6.39 + all 19 R packages + system check PASS
+## Next milestones
 
-### MILESTONE 9 — Fix Windows installer: R packages + LaTeX package names 🔧 IN PROGRESS
-Errors observed on real Windows install (v0.20.11 build):
-1. **R packages not installed** — `'\P' is an unrecognized escape` because `C:\Program Files\...\r-library` is passed raw to R; backslash `\P` is an invalid escape sequence in R strings.
-2. **Wrong LaTeX package names** — `afterpage`, `array`, `graphicx`, `longtable`, `tikz` are not TLmgr repository names (they are LaTeX command names or file names). TLmgr reports "not present in repository".
-3. **`capt-of` tar failure** — tlmgr cannot extract `capt-of.sty` because the target directory `texmf-dist/tex/latex/capt-of/` does not exist in a fresh TinyTeX tree.
-4. **PS5.1 parse errors in error.log** — from stale bundled script in old installer build; will be resolved by rebuild.
-
-Fixes applied to `packaging/setup_dependencies.ps1`:
-- [x] R path: add `$R_LIB_R = $R_LIB.Replace('\', '/')` and use `$R_LIB_R` in the R `-e` string
-- [x] LaTeX list: `afterpage`→`preprint`, `graphicx`→`graphics`; remove `array`, `longtable`, `tikz` (covered by `tools` and `pgf` already in list)
-- [x] Pre-create `texmf-dist\tex\latex\capt-of` (and `preprint`) before running `tlmgr install`
-- [x] Startup guard false-negative fixed (`gui_system_check.py`): refresh PATH from Windows registry + fallback hardcoded paths for R/Quarto/TinyTeX + R_LIBS injection for bundled r-library (v0.20.13)
-- **Gate:** Fresh Windows VM (no prior R/LaTeX): startup guard passes + all 19 R packages install without error + `quarto render ResilienceReport.qmd` produces a PDF
-
-### MILESTONE 10 — Fix report generation in the installed app ⏳ TODO
-Two bugs found during real Windows testing (observed after M9 installer fixes):
-
-**Bug 1 — Data tab rejects .xlsx files**
-- The Data tab only accepts `.csv` files; `.xlsx` is not in the file-type filter.
-- Original design: user drops in `.xlsx` (or `.xml`), the app converts it to `cleaned_master.csv` via `convert_data.py`, then the pipeline runs on that CSV.
-- Fix: restore `.xlsx` (and optionally `.xml`) as accepted input types in the Data tab file picker; wire the Convert button so it runs `convert_data.py` before any pipeline step.
-
-**Bug 2 — `quarto render` fails with "No valid input files passed to render"**
-- Error logged: `ERROR: No valid input files passed to render` for every row.
-- Root cause: `ResilienceReport.qmd` (and its companion assets — `_extensions/`, `img/`, `references.bib`, `QTDublinIrish.otf`, `.tex` includes) are not being found by the installed app.  PyInstaller bundles them into `_internal/` but the quarto subprocess is invoked with a working directory or `--input` path that does not resolve to the bundled `.qmd`.
-- Fix: ensure `generate_all_reports.py` / `generate_single_report.py` resolve `ResilienceReport.qmd` relative to the correct root (frozen: `Path(sys.executable).parent` or `sys._MEIPASS`; dev: repo root) and pass the absolute path to `quarto render`.  Verify all companion assets are included in the PyInstaller `--add-data` flags in `ci.yml`.
-- **Gate:** Installed app generates a visually correct PDF from a real CSV without errors.
-
-### MILESTONE 11 — Anonymised sample dataset ⏳ TODO
-Create a committed test fixture that exercises the full pipeline without exposing real respondent data.
-
-**What to build:**
-- `scripts/make_sample_data.py` — generate `tests/fixtures/sample_anonymized.xlsx` from scratch (no dependency on the real file).  3–5 rows, realistic but entirely fictional data:
-  - Names: e.g. "Alice Bennet", "Bob Hartley", "Carol Diaz"
-  - Companies: e.g. "Acme Logistics BV", "Globex Manufacturing", "Initech Solutions"
-  - Emails: `alice.bennet@example.com` etc.  (never real addresses)
-  - Score columns (`up__*`, `in__*`, `do__*`): values 1–5 matching the cleaned_master.csv schema exactly
-  - `submitdate`, `reportsent` (False), `version`, `sector`, `country` all present
-  - Sheet name `MasterData`, header row in the same position `convert_data.py` expects
-- `tests/fixtures/sample_anonymized.xlsx` — the generated file, **committed to the repo** (no real data, safe to version-control)
-- `tests/test_pipeline_sample.py` — smoke test: `convert_and_save()` succeeds on the fixture and produces a valid CSV with the right columns
-
-**Gate:** `pytest tests/test_pipeline_sample.py` passes on a clean checkout with no real data files present.
-
-### MILESTONE 12 — End-to-end CI pipeline test ⏳ TODO
-Automatically validate the full report-generation pipeline on every release build, using the anonymised fixture from M11.
-
-**What to build:**
-- New workflow `.github/workflows/e2e.yml` — runs on `workflow_dispatch` (manual trigger) and optionally on release tag pushes:
-  - Matrix: `windows-latest` + `ubuntu-latest`
-  - Steps: install R + Quarto + TinyTeX (reuse the same versions as the installer), install R packages, run `convert_data.py` on the fixture, run `clean_data.py`, run `generate_all_reports.py`, run `validate_reports.py`
-  - Assert: at least one PDF file exists in `reports/` and `validate_reports.py` exits 0
-  - Upload PDFs as a CI artifact for visual inspection
-- The workflow must inject `R_LIBS` pointing at the CI-installed package directory (same logic as the frozen app)
-- Keep it `workflow_dispatch` initially so it doesn't slow down every push; promote to `push` on `main` once it reliably passes
-
-**Gate:** Manual trigger of `e2e.yml` on both Windows and Linux runners produces at least 3 PDFs (one per fixture row) and the validate step exits 0.
-
-### MILESTONE 13 — In-app update checker ⏳ TODO
-The installed app notifies users when a newer version is available on GitHub, with a one-click path to download it.
-
-**What to build:**
-- `update_checker.py` — module with a single public function `check_for_update() -> dict | None`:
-  - Calls `https://api.github.com/repos/OWNER/REPO/releases/latest` (timeout 5 s, fail silently)
-  - Parses `tag_name` (e.g. `v0.21.0`) and compares with the running app version from `pyproject.toml` or a baked-in `__version__` constant
-  - Returns `{"version": "0.21.0", "url": "https://github.com/.../releases/tag/v0.21.0"}` if newer, else `None`
-- Wire into `app/main.py`:
-  - Background thread at startup (non-blocking, does not delay GUI)
-  - If an update is found: show a status-bar message "Update available: v0.21.0 — Download" where "Download" is a clickable hyperlink that opens the browser via `webbrowser.open(url)`
-  - If the check fails (no internet, rate-limited, etc.): silently ignore
-- The current version must be baked into the frozen app at build time — inject it as an env var in CI and write it to `app/_version.py` during the PyInstaller build step
-
-**Gate:** Running the app with a deliberately downgraded `__version__` shows the update notification; running with the real current version shows nothing.
-
-### MILESTONE 14 — README download badges ⏳ TODO
-The README always shows direct download links to the latest installer artifacts so users can find them without navigating GitHub releases.
-
-**What to build:**
-- Add a **Downloads** section near the top of `README.md` with a download table, initially pointing to `releases/latest`:
-  ```
-  | Platform | Download |
-  |----------|----------|
-  | Windows  | [Windows Installer (.exe)](https://github.com/OWNER/REPO/releases/latest/download/REPO-VERSION-windows-setup.exe) |
-  | Windows  | [Portable ZIP](https://github.com/OWNER/REPO/releases/latest/download/REPO-VERSION-windows-portable.zip) |
-  | Linux    | [.deb (Ubuntu/Debian)](https://github.com/OWNER/REPO/releases/latest/download/REPO-VERSION-amd64.deb) |
-  | Linux    | [AppImage](https://github.com/OWNER/REPO/releases/latest/download/REPO-VERSION-x86_64.AppImage) |
-  | Linux    | [Tarball (.tar.gz)](https://github.com/OWNER/REPO/releases/latest/download/REPO-VERSION-linux-amd64.tar.gz) |
-  ```
-- Add a CI step in the `publish` job of `ci.yml`: after the release is created, patch `README.md` to replace `REPO-VERSION` with the actual `APP_VERSION`, then commit and push the change back to `main`.  Use `git push origin main` with `[skip ci]` in the commit message to avoid triggering another build loop.
-- Add a shields.io `Latest Release` badge at the top of the README that always reflects the current version.
-
-**Gate:** After a release build, `README.md` on `main` contains direct download links with the correct version number; clicking them downloads the right files.
+*Awaiting results from Windows/Linux testing of v0.21.1. New milestones will be added here based on bugs found.*
