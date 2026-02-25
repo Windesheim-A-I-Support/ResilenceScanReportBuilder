@@ -143,6 +143,22 @@ emails via Outlook COM (Windows) or SMTP fallback (Office365)
 - Temp PDF output uses absolute `REPORTS_DIR` path (avoids writing to non-writable `_internal/`)
 - **Gate:** Installed app generates correct PDF from real .xlsx — ⏳ *pending Windows test*
 
+### ✅ M15 — Fix quarto .quarto/ PermissionDenied in frozen app (v0.21.4)
+- **Root cause:** Quarto always creates a `.quarto/` scratch directory *next to the QMD file*.
+  In the frozen/installed app the QMD lives in `_internal/` (Windows: `Program Files\…\_internal\`;
+  Linux: `/opt/…/_internal/`) which is read-only for normal users → `PermissionDenied` on every render.
+- **Why not caught earlier:** All previous testing was dev-mode (`python app/main.py` from repo),
+  where `_asset_root() == _data_root() == repo root` (writable). The e2e CI also runs pipeline scripts
+  directly, never the frozen binary. Report generation from an installed binary was never tested.
+- **Fix:** `_sync_template()` in `app/main.py` — copies `ResilienceReport.qmd` + `img/`, `tex/`,
+  `_extensions/`, `references.bib`, `QTDublinIrish.otf` from `_asset_root()` to `_data_root()` at
+  startup (frozen mode only). Only re-copies when source QMD is newer (post-update). Both render
+  subprocess calls now use `cwd=str(_DATA_ROOT)` and `selected_template = _DATA_ROOT / ...`.
+- **Bonus fix:** `stderr[:2000]` (was `[-500:]`) so the root cause error appears in the log.
+- **Confirmed on Linux** by reproducing the exact failure with a read-only `fake_internal/` dir,
+  then confirming success after running `_sync_template()` logic.
+- **Gate:** Installed app generates correct PDF from real .xlsx on Windows ⏳ *pending Windows test*
+
 ### ✅ M11 — Anonymised sample dataset (v0.21.0)
 - `scripts/make_sample_data.py` + `tests/fixtures/sample_anonymized.xlsx` (3 fictional respondents)
 - `tests/test_pipeline_sample.py` — 6 tests, all pass
@@ -168,4 +184,4 @@ emails via Outlook COM (Windows) or SMTP fallback (Office365)
 
 ## Next milestones
 
-*Awaiting results from Windows/Linux testing of v0.21.1. New milestones will be added here based on bugs found.*
+*Awaiting Windows test of v0.21.4 installed app — report generation (M15 gate). New milestones added based on bugs found.*
