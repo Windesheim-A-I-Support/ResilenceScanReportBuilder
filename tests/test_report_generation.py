@@ -22,6 +22,7 @@ import generate_all_reports as gar  # noqa: E402
 # Filename helpers
 # ---------------------------------------------------------------------------
 
+
 class TestSafeFilename:
     def test_alphanumeric_passthrough(self):
         assert gar.safe_filename("AcmeCorp") == "AcmeCorp"
@@ -67,6 +68,7 @@ class TestSafeDisplayName:
 # ---------------------------------------------------------------------------
 # Quarto command structure
 # ---------------------------------------------------------------------------
+
 
 def _make_dummy_csv(tmp_path: pathlib.Path) -> pathlib.Path:
     """Create a minimal cleaned_master.csv in tmp_path/data/.
@@ -176,8 +178,11 @@ def test_generate_reports_skips_existing(tmp_path, monkeypatch):
 
     # Pre-create the output PDF so the file already exists
     from datetime import datetime
+
     date_str = datetime.now().strftime("%Y%m%d")
-    existing = reports_dir / f"{date_str} ResilienceScanReport (Acme Corp - Alice Test).pdf"
+    existing = (
+        reports_dir / f"{date_str} ResilienceScanReport (Acme Corp - Alice Test).pdf"
+    )
     existing.write_bytes(b"%PDF-1.4 existing")
 
     call_count = {"n": 0}

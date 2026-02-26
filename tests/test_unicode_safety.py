@@ -104,7 +104,9 @@ def test_no_non_ascii_in_raise_or_exit_strings(script):
     # Collect linenos of docstrings so we can skip them
     docstring_lines: set[int] = set()
     for node in ast.walk(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Module)):
+        if isinstance(
+            node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Module)
+        ):
             if (
                 node.body
                 and isinstance(node.body[0], ast.Expr)
