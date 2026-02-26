@@ -1,5 +1,5 @@
 #!/bin/bash
-# setup_linux.sh — installs R, Quarto, TinyTeX and required R packages.
+# setup_linux.sh -- installs R, Quarto, TinyTeX and required R packages.
 # Called by postinst.sh in the background so dpkg lock is not held.
 # Can also be run manually: sudo /opt/ResilenceScanReportBuilder/setup_linux.sh
 
@@ -14,7 +14,7 @@ R_LIB="$INSTALL_DIR/r-library"
 
 log() { echo "[SETUP] $1"; }
 
-# ── R ────────────────────────────────────────────────────────────────────────
+# -- R ------------------------------------------------------------------------
 if ! command -v Rscript &>/dev/null; then
     log "Installing R from CRAN APT repository..."
     apt-get update -qq
@@ -28,13 +28,13 @@ if ! command -v Rscript &>/dev/null; then
     apt-get update -qq
     apt-get install -y --no-install-recommends r-base r-base-dev
 else
-    log "R already present — skipping."
+    log "R already present -- skipping."
 fi
 
-# ── System libraries required by R packages ───────────────────────────────────
-# kableExtra → systemfonts (libharfbuzz-dev, libfribidi-dev)
-# rmarkdown  → xml2 (libxml2-dev)
-# curl       → libcurl4-openssl-dev
+# -- System libraries required by R packages -----------------------------------
+# kableExtra -> systemfonts (libharfbuzz-dev, libfribidi-dev)
+# rmarkdown  -> xml2 (libxml2-dev)
+# curl       -> libcurl4-openssl-dev
 log "Installing system libraries for R packages..."
 apt-get install -y --no-install-recommends \
     libharfbuzz-dev libfribidi-dev \
@@ -43,7 +43,7 @@ apt-get install -y --no-install-recommends \
     libssl-dev \
     libfontconfig1-dev
 
-# ── Quarto ───────────────────────────────────────────────────────────────────
+# -- Quarto -------------------------------------------------------------------
 if ! command -v quarto &>/dev/null; then
     log "Downloading Quarto $QUARTO_VERSION..."
     TMP=$(mktemp -d)
@@ -53,10 +53,10 @@ if ! command -v quarto &>/dev/null; then
     apt-get install -f -y     # fix any missing dependencies
     rm -rf "$TMP"
 else
-    log "Quarto already present — skipping."
+    log "Quarto already present -- skipping."
 fi
 
-# ── TinyTeX ──────────────────────────────────────────────────────────────────
+# -- TinyTeX ------------------------------------------------------------------
 if ! command -v tlmgr &>/dev/null; then
     log "Installing TinyTeX via Quarto..."
     quarto install tinytex --no-prompt
@@ -83,10 +83,10 @@ if ! command -v tlmgr &>/dev/null; then
         log "WARNING: TinyTeX bin dir not found after install - tried ~/.local/share/quarto/tools/tinytex and ~/.TinyTeX"
     fi
 else
-    log "TinyTeX already present — skipping."
+    log "TinyTeX already present -- skipping."
 fi
 
-# ── R packages ───────────────────────────────────────────────────────────────
+# -- R packages ---------------------------------------------------------------
 log "Installing R packages into $R_LIB..."
 mkdir -p "$R_LIB"
 
@@ -98,7 +98,7 @@ Rscript -e "
   install.packages(pkgs, lib='$R_LIB', repos='https://cloud.r-project.org', Ncpus=${NCPUS}, quiet=FALSE)
 "
 
-# Verify all packages installed — install.packages does not exit non-zero on
+# Verify all packages installed -- install.packages does not exit non-zero on
 # partial failure, so check explicitly and retry any that are missing.
 log "Verifying R packages..."
 MISSING=$(Rscript --no-save -e "
@@ -121,7 +121,7 @@ if [ -n "$MISSING" ]; then
     if [ -n "$STILL_MISSING" ]; then
         log "ERROR: R packages still missing after retry: $STILL_MISSING"
     else
-        log "R package retry succeeded — all packages present."
+        log "R package retry succeeded -- all packages present."
     fi
 else
     log "R package verification: all packages present."
