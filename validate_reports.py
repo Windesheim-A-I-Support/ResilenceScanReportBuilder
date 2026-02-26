@@ -94,7 +94,7 @@ def validate_all(
             continue
 
         company, person = parsed
-        print(f"\n[{company} — {person}]")
+        print(f"\n[{company} - {person}]")
         print(f"   File: {pdf_path.name}")
 
         result = validate_report(
@@ -141,7 +141,7 @@ def validate_all(
     if pass_rate >= 90.0:
         print("\n   [SUCCESS] Gate passed -- pass rate >= 90%")
     else:
-        print("\n   [ATTENTION] Gate not met — pass rate < 90%")
+        print("\n   [ATTENTION] Gate not met -- pass rate < 90%")
     print("=" * 70)
 
     return {
