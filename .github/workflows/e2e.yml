@@ -105,13 +105,31 @@ jobs:
         if: runner.os == 'Linux'
         shell: bash
         run: |
-          # quarto install tinytex does not add tlmgr to PATH.
-          # Use || true on every find|head pipeline: with -e -o pipefail, find
-          # returning non-zero (directory missing) would kill the script silently.
-          TLMGR=$(find "$HOME/.local/share/quarto" -name tlmgr -type f 2>/dev/null | head -1 || true)
+          # quarto install tinytex does not add tlmgr to PATH automatically.
+          # TinyTeX may place tlmgr as a symlink (-type f misses it), so we omit
+          # -type f.  Use || true on every find|head pipeline so pipefail does not
+          # kill the script when the directory exists but find exits non-zero.
+
+          # 1. Check PATH first (quarto sometimes adds it)
+          TLMGR=$(which tlmgr 2>/dev/null || true)
+
+          # 2. Try explicit well-known quarto/TinyTeX locations (no -type f, catches symlinks)
           if [[ -z "$TLMGR" ]]; then
-            TLMGR=$(find "$HOME" -maxdepth 10 -name tlmgr -type f 2>/dev/null | head -1 || true)
+            TLMGR=$(find "$HOME/.local/share/quarto/tools" "$HOME/.TinyTeX" \
+                -maxdepth 8 -name tlmgr \
+                2>/dev/null | head -1 || true)
           fi
+
+          # 3. Broader home-directory search as final fallback
+          if [[ -z "$TLMGR" ]]; then
+            TLMGR=$(find "$HOME" -maxdepth 12 -name tlmgr 2>/dev/null | head -1 || true)
+          fi
+
+          # Diagnostics: show HOME top-level + all tlmgr files found
+          echo "HOME top-level: $(ls "$HOME" 2>/dev/null | tr '\n' ' ')"
+          echo "All tlmgr files found:"
+          find "$HOME" -maxdepth 12 -name tlmgr 2>/dev/null | head -20 || true
+
           if [[ -z "$TLMGR" ]]; then
             echo "::error::tlmgr not found anywhere under $HOME"
             exit 1
