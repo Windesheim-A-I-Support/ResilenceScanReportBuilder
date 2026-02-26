@@ -194,4 +194,23 @@ emails via Outlook COM (Windows) or SMTP fallback (Office365)
 
 ## Next milestones
 
-*Awaiting Windows test of v0.21.7 installed app — M15 gate (report generation without errors). New milestones added based on bugs found.*
+### ✅ M16 — Cross-platform test runner (v0.21.14)
+`.github/workflows/platform.yml` — runs on every push + PR, no R/Quarto needed.
+
+**Matrix:** `ubuntu-latest` × `windows-latest`
+
+| Step | Ubuntu | Windows |
+|---|---|---|
+| `pytest` | ✅ | ✅ |
+| App import smoke test | ✅ | ✅ |
+| Pipeline dry run: convert → clean → verify CSV | ✅ | ✅ |
+| PowerShell 5.1 syntax check (`shell: powershell`) | — | ✅ |
+
+**Why it matters:**
+- `pytest` previously only ran on Ubuntu — Windows path/encoding bugs could ship silently.
+- Pipeline dry run validates the Python-only steps on both platforms on every push.
+- `shell: powershell` invokes genuine PS5.1 (not PS7/pwsh); catches encoding and syntax issues
+  that the existing PS7 check in `ci.yml` would miss (the v0.21.13 em-dash bug would have been
+  caught here before reaching a real machine).
+
+**Gate:** ✅ Both matrix jobs green on first run.

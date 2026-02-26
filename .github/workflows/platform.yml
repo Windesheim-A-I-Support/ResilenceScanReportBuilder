@@ -1,0 +1,132 @@
+name: Platform Tests
+
+# Runs the Python test suite and pure-Python pipeline steps on both
+# Windows and Linux on every push/PR -- no R, Quarto, or TinyTeX needed.
+#
+# Complements the existing workflows:
+#   ci.yml      -- lint + build + release (Ubuntu only)
+#   e2e.yml     -- full R/Quarto PDF pipeline (manual trigger)
+#
+# What this adds that was missing:
+#   - pytest on Windows  (catches Windows path/encoding bugs)
+#   - pipeline dry run on both platforms (convert -> clean, pure Python)
+#   - app import smoke test on Windows
+#   - PowerShell 5.1 syntax check (shell: powershell = actual PS5.1,
+#     not PS7/pwsh used in ci.yml -- the real target environment)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  platform-test:
+    name: Tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install system libraries (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends python3-tk tk-dev
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pyyaml
+
+      # ── Python tests ──────────────────────────────────────────────────────
+      - name: pytest
+        run: pytest --maxfail=3 --disable-warnings -q
+
+      # ── App import smoke test ─────────────────────────────────────────────
+      # app/main.py is safe to import headlessly: all GUI code is inside
+      # functions/classes; no tk.Tk() is called at module level.
+      - name: App import smoke test
+        run: python -c "import app.main; print('app.main imported OK')"
+
+      # ── Pipeline dry run (pure Python, no R/Quarto) ───────────────────────
+      - name: Prepare fixture
+        shell: bash
+        run: |
+          mkdir -p data
+          cp tests/fixtures/sample_anonymized.xlsx data/
+
+      - name: Convert Excel to CSV
+        run: python convert_data.py
+
+      - name: Clean CSV
+        run: python clean_data.py
+
+      - name: Verify pipeline output
+        shell: python
+        run: |
+          import sys
+          from pathlib import Path
+          import csv
+
+          csv_path = Path("data/cleaned_master.csv")
+          if not csv_path.exists():
+              print("FAIL: cleaned_master.csv not found")
+              sys.exit(1)
+
+          with open(csv_path, encoding="utf-8") as f:
+              rows = list(csv.DictReader(f))
+
+          if len(rows) == 0:
+              print("FAIL: cleaned_master.csv is empty")
+              sys.exit(1)
+
+          # Check required columns are present
+          required = {"company_name", "name"}
+          missing = required - set(rows[0].keys())
+          if missing:
+              print(f"FAIL: missing columns: {missing}")
+              sys.exit(1)
+
+          print(f"OK: {len(rows)} rows, columns present: {sorted(rows[0].keys())[:6]}...")
+
+      # ── PowerShell 5.1 syntax check (Windows only) ────────────────────────
+      # shell: powershell invokes Windows PowerShell 5.1 -- the actual version
+      # used on target machines.  This is stricter than the pwsh/PS7 check in
+      # ci.yml because PS5.1 has different parsing rules (e.g. encoding handling).
+      - name: PowerShell 5.1 syntax check
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          $failed = $false
+          foreach ($ps1 in @(
+              "packaging\setup_dependencies.ps1",
+              "packaging\launch_setup.ps1"
+          )) {
+              if (-not (Test-Path $ps1)) {
+                  Write-Host "SKIP: $ps1 not found"
+                  continue
+              }
+              $errors = $null
+              $null = [System.Management.Automation.Language.Parser]::ParseFile(
+                  (Resolve-Path $ps1).Path, [ref]$null, [ref]$errors)
+              if ($errors.Count -gt 0) {
+                  foreach ($e in $errors) {
+                      Write-Host "::error file=${ps1}::$e"
+                  }
+                  $failed = $true
+              } else {
+                  Write-Host "OK (PS5.1): $ps1"
+              }
+          }
+          if ($failed) { exit 1 }
