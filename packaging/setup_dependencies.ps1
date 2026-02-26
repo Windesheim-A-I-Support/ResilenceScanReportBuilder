@@ -100,19 +100,25 @@ Write-Log "Running as : $([System.Security.Principal.WindowsIdentity]::GetCurren
 
 # ---- Helper: find Rscript.exe (PS 5.1 compatible -- no ?. operator) ---------
 function Find-Rscript {
-    $cmd      = Get-Command Rscript -ErrorAction SilentlyContinue
-    $fromPath = if ($cmd) { $cmd.Source } else { $null }
+    # Prefer the target R version explicitly — this ensures that after a
+    # version upgrade the new R binary is used even when the old version is
+    # still first on PATH.
     $candidates = @(
-        $fromPath,
         "C:\Program Files\R\R-$R_VERSION\bin\Rscript.exe",
         "C:\Program Files\R\R-$R_VERSION\bin\x64\Rscript.exe"
     )
     foreach ($c in $candidates) {
         if ($c -and (Test-Path $c)) { return $c }
     }
-    # Fall back to any installed R version
+    # Fall back to whatever PATH resolves to
+    $cmd = Get-Command Rscript -ErrorAction SilentlyContinue
+    if ($cmd) { return $cmd.Source }
+    # Last resort: scan for any R installation, newest version first
+    # (Sort-Object on the full path gives ascending version order, so
+    #  -Descending returns the highest R-x.y.z directory first.)
     $found = Get-ChildItem "C:\Program Files\R" -Filter "Rscript.exe" `
                  -Recurse -ErrorAction SilentlyContinue |
+             Sort-Object FullName -Descending |
              Select-Object -First 1 -ExpandProperty FullName
     return $found
 }
@@ -314,7 +320,36 @@ if (-not $tlmgr) {
         Add-Content -Path $ERROR_LOG -Value $errStk                     -Encoding UTF8
     }
 } else {
-    Write-Log "TinyTeX already present: $($tlmgr.Source) - skipping."
+    Write-Log "TinyTeX already present: $($tlmgr.Source) - skipping install."
+}
+
+# Ensure TinyTeX is accessible to regular users via C:\ProgramData\TinyTeX.
+# This copy is needed on reinstalls where tlmgr was already present (setup
+# skipped the install block above) but the public copy was never created.
+$publicRoot = "C:\ProgramData\TinyTeX"
+if (-not (Test-Path $publicRoot)) {
+    $tlmgrNow = Get-Command tlmgr -ErrorAction SilentlyContinue
+    if ($tlmgrNow) {
+        $tinyTexBinNow  = Split-Path $tlmgrNow.Source -Parent
+        $tinyTexRootNow = Split-Path (Split-Path $tinyTexBinNow -Parent) -Parent
+        Write-Log "Copying TinyTeX to $publicRoot for user accessibility (post-install)..."
+        try {
+            & robocopy $tinyTexRootNow $publicRoot /E /NFL /NDL /NJH /NJS /NC /NS /NP /MT:4 2>&1 | Out-Null
+            Write-Log "TinyTeX copied to $publicRoot"
+        } catch {
+            Write-Log "WARNING: robocopy to ProgramData failed: $($_.Exception.Message)"
+        }
+        $publicBin = "$publicRoot\bin\windows"
+        if (Test-Path $publicBin) {
+            $machinePath = [System.Environment]::GetEnvironmentVariable("PATH", "Machine")
+            if ($machinePath -notlike "*$publicBin*") {
+                [System.Environment]::SetEnvironmentVariable(
+                    "PATH", "$machinePath;$publicBin", "Machine")
+                Write-Log "TinyTeX (public) added to system PATH: $publicBin"
+            }
+            $env:PATH = "$env:PATH;$publicBin"
+        }
+    }
 }
 
 # ---- LaTeX packages ---------------------------------------------------------
