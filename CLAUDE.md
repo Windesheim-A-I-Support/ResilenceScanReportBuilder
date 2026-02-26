@@ -98,7 +98,7 @@ emails via Outlook COM (Windows) or SMTP fallback (Office365)
 
 | Dependency | Version | Notes |
 |------------|---------|-------|
-| R | 4.3.2 | CRAN `/old/` archive URL |
+| R | latest (auto-discovered from CRAN) | Current release URL, falls back to `/old/`; fallback pin: 4.5.1 |
 | Quarto | 1.6.39 | GitHub releases |
 | TinyTeX | Quarto-pinned | `quarto install tinytex` |
 | Python | ≥ 3.11 | bundled by PyInstaller |

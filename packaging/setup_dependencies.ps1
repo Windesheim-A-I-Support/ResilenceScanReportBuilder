@@ -41,8 +41,22 @@ trap {
     exit 1
 }
 
-$R_VERSION      = "4.3.2"
-$QUARTO_VERSION = "1.6.39"
+$R_VERSION_FALLBACK = "4.5.1"  # used if CRAN discovery fails
+$QUARTO_VERSION     = "1.6.39"
+
+# Auto-discover current R version from CRAN so we always install the latest.
+# Falls back to $R_VERSION_FALLBACK if the network request fails.
+$R_VERSION = $R_VERSION_FALLBACK
+try {
+    $dcf = (Invoke-WebRequest -Uri "https://cran.r-project.org/bin/windows/base/VERSION-INFO.dcf" `
+                -UseBasicParsing -TimeoutSec 15).Content
+    if ($dcf -match "(?m)^Version:\s*(\d+\.\d+\.\d+)") {
+        $R_VERSION = $matches[1]
+        Write-Log "Discovered current R version: $R_VERSION"
+    }
+} catch {
+    Write-Log "Could not auto-discover R version (network?), using fallback: $R_VERSION"
+}
 $R_LIB          = "$InstallDir\r-library"
 $TMP            = "C:\Windows\Temp"        # reliable under SYSTEM account
 
@@ -109,40 +123,79 @@ function Refresh-Path {
 }
 
 # ---- R ----------------------------------------------------------------------
-$rscriptBefore = Find-Rscript
-if (-not $rscriptBefore) {
-    Write-Log "Downloading R $R_VERSION..."
-    # CRAN moves installers to /old/{ver}/ once a new minor series ships
-    $rUrl = "https://cran.r-project.org/bin/windows/base/old/$R_VERSION/R-$R_VERSION-win.exe"
-    $rTmp = "$TMP\R-$R_VERSION-win.exe"
+# Install the discovered version if (a) no R is found, or (b) the installed
+# version is older than the required version (ensures binary packages exist).
+function Get-InstalledRVersion($rscript) {
+    if (-not $rscript) { return $null }
     try {
-        Write-Log "  URL: $rUrl"
-        Invoke-WebRequest -Uri $rUrl -OutFile $rTmp -UseBasicParsing
-        $sizeMB = [math]::Round((Get-Item $rTmp).Length / 1MB, 1)
-        Write-Log "  Download complete ($sizeMB MB)"
-        Write-Log "Installing R $R_VERSION (silent, all users)..."
-        $proc = Start-Process -FilePath $rTmp `
-                    -ArgumentList "/VERYSILENT", "/NORESTART", "/ALLUSERS" `
-                    -Wait -PassThru
-        Write-Log "  R installer exit code: $($proc.ExitCode)"
-        Remove-Item $rTmp -Force -ErrorAction SilentlyContinue
-        Refresh-Path
-        $rAfter = Find-Rscript
-        if ($rAfter) {
-            Write-Log "R installed successfully: $rAfter"
-        } else {
-            Write-Log "WARNING: R installer finished but Rscript.exe not found - check exit code above."
-        }
-    } catch {
-        $errMsg = $_.Exception.Message
-        $errStk = $_.ScriptStackTrace
-        Write-Log "ERROR installing R: $errMsg"
-        Write-Log "  Stack: $errStk"
-        Add-Content -Path $ERROR_LOG -Value "[R install] $errMsg"  -Encoding UTF8
-        Add-Content -Path $ERROR_LOG -Value $errStk                -Encoding UTF8
-    }
+        $out = (& $rscript --version 2>&1) -join " "
+        if ($out -match "R version (\d+\.\d+\.\d+)") { return [version]$matches[1] }
+    } catch {}
+    return $null
+}
+
+$rscriptBefore    = Find-Rscript
+$installedVersion = Get-InstalledRVersion $rscriptBefore
+$requiredVersion  = [version]$R_VERSION
+
+$needInstall = $false
+if (-not $rscriptBefore) {
+    Write-Log "R not found — installing $R_VERSION..."
+    $needInstall = $true
+} elseif ($installedVersion -and ($installedVersion -lt $requiredVersion)) {
+    Write-Log "R $installedVersion found but < $R_VERSION — upgrading to latest..."
+    $needInstall = $true
 } else {
-    Write-Log "R already present: $rscriptBefore - skipping."
+    Write-Log "R $installedVersion already present and up to date — skipping install."
+}
+
+if ($needInstall) {
+    # Try current-release URL first; if not found, fall back to /old/ archive.
+    $rTmp = "$TMP\R-$R_VERSION-win.exe"
+    $rUrls = @(
+        "https://cran.r-project.org/bin/windows/base/R-$R_VERSION-win.exe",
+        "https://cran.r-project.org/bin/windows/base/old/$R_VERSION/R-$R_VERSION-win.exe"
+    )
+    $downloaded = $false
+    foreach ($rUrl in $rUrls) {
+        try {
+            Write-Log "  Trying: $rUrl"
+            Invoke-WebRequest -Uri $rUrl -OutFile $rTmp -UseBasicParsing
+            $sizeMB = [math]::Round((Get-Item $rTmp).Length / 1MB, 1)
+            Write-Log "  Download complete ($sizeMB MB)"
+            $downloaded = $true
+            break
+        } catch {
+            Write-Log "  URL failed: $($_.Exception.Message)"
+        }
+    }
+    if ($downloaded) {
+        try {
+            Write-Log "Installing R $R_VERSION (silent, all users)..."
+            $proc = Start-Process -FilePath $rTmp `
+                        -ArgumentList "/VERYSILENT", "/NORESTART", "/ALLUSERS" `
+                        -Wait -PassThru
+            Write-Log "  R installer exit code: $($proc.ExitCode)"
+            Remove-Item $rTmp -Force -ErrorAction SilentlyContinue
+            Refresh-Path
+            $rAfter = Find-Rscript
+            if ($rAfter) {
+                Write-Log "R installed successfully: $rAfter"
+            } else {
+                Write-Log "WARNING: R installer finished but Rscript.exe not found."
+            }
+        } catch {
+            $errMsg = $_.Exception.Message
+            $errStk = $_.ScriptStackTrace
+            Write-Log "ERROR installing R: $errMsg"
+            Write-Log "  Stack: $errStk"
+            Add-Content -Path $ERROR_LOG -Value "[R install] $errMsg" -Encoding UTF8
+            Add-Content -Path $ERROR_LOG -Value $errStk               -Encoding UTF8
+        }
+    } else {
+        Write-Log "ERROR: Could not download R $R_VERSION from any URL."
+        Add-Content -Path $ERROR_LOG -Value "[R install] Failed to download R $R_VERSION" -Encoding UTF8
+    }
 }
 
 # ---- Quarto -----------------------------------------------------------------
@@ -221,20 +274,34 @@ if (-not $tlmgr) {
             Write-Log "TinyTeX found at: $tinyTexBin"
             $tinyTexRoot = Split-Path (Split-Path $tinyTexBin -Parent) -Parent
 
-            # Grant all users read+execute so the binaries are usable system-wide
-            Write-Log "Granting read+execute to Users on TinyTeX..."
-            icacls $tinyTexRoot /grant "BUILTIN\Users:(OI)(CI)RX" /T /Q 2>&1 | Out-Null
+            # Copy TinyTeX to C:\ProgramData\TinyTeX so regular users can access
+            # it without traversal restrictions from the SYSTEM account's AppData.
+            # ProgramData is world-readable by default; this avoids ACL issues.
+            $publicRoot = "C:\ProgramData\TinyTeX"
+            $publicBin  = "$publicRoot\bin\windows"
+            if (-not (Test-Path $publicRoot)) {
+                Write-Log "Copying TinyTeX to $publicRoot (accessible to all users)..."
+                try {
+                    & robocopy $tinyTexRoot $publicRoot /E /NFL /NDL /NJH /NJS /NC /NS /NP /MT:4 2>&1 | Out-Null
+                    Write-Log "TinyTeX copied to $publicRoot"
+                } catch {
+                    Write-Log "WARNING: robocopy failed ($($_.Exception.Message)) — falling back to original path."
+                    $publicBin = $tinyTexBin   # fall back to original
+                }
+            } else {
+                Write-Log "C:\ProgramData\TinyTeX already present — skipping copy."
+            }
 
-            # Add TinyTeX bin to machine-wide PATH
+            # Add the public TinyTeX bin to machine-wide PATH
             $machinePath = [System.Environment]::GetEnvironmentVariable("PATH", "Machine")
-            if ($machinePath -notlike "*$tinyTexBin*") {
+            if ($machinePath -notlike "*$publicBin*") {
                 [System.Environment]::SetEnvironmentVariable(
-                    "PATH", "$machinePath;$tinyTexBin", "Machine")
-                Write-Log "TinyTeX added to system PATH."
+                    "PATH", "$machinePath;$publicBin", "Machine")
+                Write-Log "TinyTeX added to system PATH: $publicBin"
             } else {
                 Write-Log "TinyTeX already in system PATH."
             }
-            $env:PATH = "$env:PATH;$tinyTexBin"
+            $env:PATH = "$env:PATH;$publicBin"
         } else {
             Write-Log "WARNING: TinyTeX bin dir not found after install - tlmgr will be unavailable."
         }
@@ -316,9 +383,19 @@ if ($rscript) {
     # "unrecognized escape" errors (e.g. \P in \Program Files is not a valid escape).
     $R_LIB_R = $R_LIB.Replace('\', '/')
     try {
-        & $rscript -e "install.packages(c($pkgList), lib='$R_LIB_R', repos='https://cloud.r-project.org', quiet=TRUE)" 2>&1 |
+        & $rscript -e "install.packages(c($pkgList), lib='$R_LIB_R', repos='https://cloud.r-project.org', quiet=FALSE)" 2>&1 |
             ForEach-Object { Write-Log "  [R] $_" }
-        Write-Log "R packages installed."
+
+        # Verify all packages actually installed — quiet=FALSE still doesn't
+        # set a non-zero exit code on partial failure, so check explicitly.
+        $verifyScript = "missing <- c($pkgList)[!c($pkgList) %in% rownames(installed.packages(lib.loc='$R_LIB_R'))]; if(length(missing)==0) cat('OK') else cat('MISSING:', paste(missing, collapse=','))"
+        $verifyOut = (& $rscript --no-save -e $verifyScript 2>&1) -join " "
+        if ($verifyOut -match "^OK") {
+            Write-Log "R package verification: all $($R_PACKAGES.Count) packages present."
+        } else {
+            Write-Log "WARNING: R package verification failed: $verifyOut"
+            Add-Content -Path $ERROR_LOG -Value "[R packages verify] $verifyOut" -Encoding UTF8
+        }
     } catch {
         $errMsg = $_.Exception.Message
         $errStk = $_.ScriptStackTrace

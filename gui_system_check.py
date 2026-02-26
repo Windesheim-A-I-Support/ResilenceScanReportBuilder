@@ -118,7 +118,9 @@ def _find_tlmgr() -> str | None:
         return exe
     if sys.platform == "win32":
         candidates = [
-            # Quarto 1.4+ tools dir — where 'quarto install tinytex' puts TinyTeX
+            # Public location: setup copies TinyTeX here so all users can access it
+            r"C:\ProgramData\TinyTeX\bin\windows\tlmgr.bat",
+            # Current user's quarto tools dir (Quarto 1.4+)
             os.path.join(
                 os.environ.get("APPDATA", ""),
                 r"quarto\tools\tinytex\bin\windows\tlmgr.bat",
