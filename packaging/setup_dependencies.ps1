@@ -383,18 +383,39 @@ if ($rscript) {
     # "unrecognized escape" errors (e.g. \P in \Program Files is not a valid escape).
     $R_LIB_R = $R_LIB.Replace('\', '/')
     try {
-        & $rscript -e "install.packages(c($pkgList), lib='$R_LIB_R', repos='https://cloud.r-project.org', quiet=FALSE)" 2>&1 |
+        # type='binary' forces pre-compiled Windows packages — avoids source-build
+        # failures where a package (e.g. ggrepel) is listed as "not available" when
+        # only the source version exists for that R minor version.
+        & $rscript -e "install.packages(c($pkgList), lib='$R_LIB_R', repos='https://cloud.r-project.org', type='binary', quiet=FALSE)" 2>&1 |
             ForEach-Object { Write-Log "  [R] $_" }
 
-        # Verify all packages actually installed — quiet=FALSE still doesn't
-        # set a non-zero exit code on partial failure, so check explicitly.
+        # Verify all packages actually installed — type='binary' + quiet=FALSE still
+        # doesn't set a non-zero exit code on partial failure, so check explicitly.
         $verifyScript = "missing <- c($pkgList)[!c($pkgList) %in% rownames(installed.packages(lib.loc='$R_LIB_R'))]; if(length(missing)==0) cat('OK') else cat('MISSING:', paste(missing, collapse=','))"
         $verifyOut = (& $rscript --no-save -e $verifyScript 2>&1) -join " "
         if ($verifyOut -match "^OK") {
             Write-Log "R package verification: all $($R_PACKAGES.Count) packages present."
         } else {
-            Write-Log "WARNING: R package verification failed: $verifyOut"
+            Write-Log "WARNING: Some packages missing after bulk install — retrying individually: $verifyOut"
             Add-Content -Path $ERROR_LOG -Value "[R packages verify] $verifyOut" -Encoding UTF8
+            # Retry each missing package one at a time with binary type
+            $missingCsv = ($verifyOut -replace "MISSING:\s*", "").Trim()
+            foreach ($pkg in ($missingCsv -split ",\s*")) {
+                $pkg = $pkg.Trim()
+                if ($pkg) {
+                    Write-Log "  Retrying: $pkg"
+                    & $rscript -e "install.packages('$pkg', lib='$R_LIB_R', repos='https://cloud.r-project.org', type='binary')" 2>&1 |
+                        ForEach-Object { Write-Log "  [R retry] $_" }
+                }
+            }
+            # Final check after retry
+            $finalOut = (& $rscript --no-save -e $verifyScript 2>&1) -join " "
+            if ($finalOut -match "^OK") {
+                Write-Log "R package verification after retry: all $($R_PACKAGES.Count) packages present."
+            } else {
+                Write-Log "ERROR: R packages still missing after retry: $finalOut"
+                Add-Content -Path $ERROR_LOG -Value "[R packages retry] $finalOut" -Encoding UTF8
+            }
         }
     } catch {
         $errMsg = $_.Exception.Message

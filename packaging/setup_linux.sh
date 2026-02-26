@@ -89,15 +89,44 @@ fi
 # ── R packages ───────────────────────────────────────────────────────────────
 log "Installing R packages into $R_LIB..."
 mkdir -p "$R_LIB"
+
+NCPUS=$(nproc 2>/dev/null || echo 2)
+R_PKGS="'readr','dplyr','stringr','tidyr','ggplot2','knitr','fmsb','scales','viridis','patchwork','RColorBrewer','gridExtra','png','lubridate','kableExtra','rmarkdown','jsonlite','ggrepel','cowplot'"
+
 Rscript -e "
-  pkgs <- c(
-    'readr', 'dplyr', 'stringr', 'tidyr', 'ggplot2', 'knitr',
-    'fmsb', 'scales', 'viridis', 'patchwork', 'RColorBrewer',
-    'gridExtra', 'png', 'lubridate', 'kableExtra', 'rmarkdown',
-    'jsonlite', 'ggrepel', 'cowplot'
-  )
-  install.packages(pkgs, lib='$R_LIB', repos='https://cloud.r-project.org', quiet=TRUE)
+  pkgs <- c($R_PKGS)
+  install.packages(pkgs, lib='$R_LIB', repos='https://cloud.r-project.org', Ncpus=${NCPUS}, quiet=FALSE)
 "
+
+# Verify all packages installed — install.packages does not exit non-zero on
+# partial failure, so check explicitly and retry any that are missing.
+log "Verifying R packages..."
+MISSING=$(Rscript --no-save -e "
+  pkgs <- c($R_PKGS)
+  miss <- pkgs[!pkgs %in% rownames(installed.packages(lib.loc='$R_LIB'))]
+  cat(paste(miss, collapse=' '))
+" 2>/dev/null || true)
+
+if [ -n "$MISSING" ]; then
+    log "Retrying missing packages: $MISSING"
+    for pkg in $MISSING; do
+        Rscript -e "install.packages('$pkg', lib='$R_LIB', repos='https://cloud.r-project.org')" || true
+    done
+    # Final check after retry
+    STILL_MISSING=$(Rscript --no-save -e "
+      pkgs <- c($R_PKGS)
+      miss <- pkgs[!pkgs %in% rownames(installed.packages(lib.loc='$R_LIB'))]
+      cat(paste(miss, collapse=' '))
+    " 2>/dev/null || true)
+    if [ -n "$STILL_MISSING" ]; then
+        log "ERROR: R packages still missing after retry: $STILL_MISSING"
+    else
+        log "R package retry succeeded — all packages present."
+    fi
+else
+    log "R package verification: all packages present."
+fi
+
 # Ensure the R library is readable by all users
 chmod -R a+rX "$R_LIB"
 
