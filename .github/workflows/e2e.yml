@@ -121,14 +121,15 @@ jobs:
             fancyhdr microtype lm needspace varwidth mdwtools xstring tools
 
           # Write capt-of stub (tlmgr tar extraction fails on fresh TinyTeX)
+          # printf avoids heredoc lines at column-0 which break YAML parsing.
           TEXMF=$("$TLMGR_DIR/kpsewhich" -var-value TEXMFHOME 2>/dev/null || echo "$HOME/texmf")
           DIR="$TEXMF/tex/latex/capt-of"
           mkdir -p "$DIR"
-          cat > "$DIR/capt-of.sty" <<'STUBEOF'
-\NeedsTeXFormat{LaTeX2e}
-\ProvidesPackage{capt-of}[2011/08/12 v0.2 non-floating captions (stub)]
-\newcommand\captionof[2][\@captype]{\def\@captype{#1}\caption{#2}}
-STUBEOF
+          printf '%s\n' \
+            '\NeedsTeXFormat{LaTeX2e}' \
+            '\ProvidesPackage{capt-of}[2011/08/12 v0.2 non-floating captions (stub)]' \
+            '\newcommand\captionof[2][\@captype]{\def\@captype{#1}\caption{#2}}' \
+            > "$DIR/capt-of.sty"
           "$TLMGR_DIR/mktexlsr" "$TEXMF" 2>/dev/null || true
           echo "capt-of stub written to $DIR"
 
@@ -180,6 +181,7 @@ STUBEOF
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
           # Write capt-of stub (tlmgr tar extraction fails on fresh TinyTeX)
+          # Use -join instead of @'...'@ here-strings to avoid YAML column-0 issues.
           $kpsewhich = Join-Path $tlmgrDir "kpsewhich.exe"
           $texmfHome = if (Test-Path $kpsewhich) {
             (& $kpsewhich -var-value TEXMFHOME 2>$null) | Select-Object -First 1 | ForEach-Object { $_.Trim() }
@@ -189,11 +191,12 @@ STUBEOF
 
           $captOfDir = "$texmfHome\tex\latex\capt-of"
           New-Item -ItemType Directory -Path $captOfDir -Force | Out-Null
-          @'
-\NeedsTeXFormat{LaTeX2e}
-\ProvidesPackage{capt-of}[2011/08/12 v0.2 non-floating captions (stub)]
-\newcommand\captionof[2][\@captype]{\def\@captype{#1}\caption{#2}}
-'@ | Set-Content "$captOfDir\capt-of.sty" -Encoding UTF8
+          $stub = @(
+            '\NeedsTeXFormat{LaTeX2e}',
+            '\ProvidesPackage{capt-of}[2011/08/12 v0.2 non-floating captions (stub)]',
+            '\newcommand\captionof[2][\@captype]{\def\@captype{#1}\caption{#2}}'
+          ) -join "`n"
+          Set-Content "$captOfDir\capt-of.sty" $stub -Encoding UTF8
 
           $mktexlsr = Join-Path $tlmgrDir "mktexlsr.exe"
           if (Test-Path $mktexlsr) { & $mktexlsr $texmfHome } else { Write-Host "mktexlsr not found, skipping" }
