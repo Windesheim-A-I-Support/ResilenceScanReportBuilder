@@ -92,90 +92,112 @@ jobs:
       - name: Install TinyTeX
         run: quarto install tinytex --no-prompt
 
-      - name: Add TinyTeX to PATH (Linux)
+      # Single combined step per platform: find tlmgr via full path, install
+      # LaTeX packages, and write the capt-of stub -- no reliance on PATH
+      # being updated between steps.
+      - name: Configure TinyTeX + install LaTeX packages (Linux)
         if: runner.os == 'Linux'
         shell: bash
         run: |
           # quarto install tinytex does not add tlmgr to PATH.
-          # Quarto 1.4+ installs TinyTeX under ~/.local/share/quarto/tools/tinytex/
-          CANDIDATES=(
-            "$HOME/.local/share/quarto/tools/tinytex/bin/x86_64-linux"
-            "$HOME/.local/share/quarto/tools/tinytex/bin/aarch64-linux"
-          )
-          FOUND=""
-          for dir in "${CANDIDATES[@]}"; do
-            if [[ -d "$dir" ]]; then
-              FOUND="$dir"
-              break
-            fi
-          done
-          # Fallback: scan the quarto tools tree for the tlmgr binary
-          if [[ -z "$FOUND" ]]; then
-            FOUND=$(find "$HOME/.local/share/quarto" -name tlmgr -type f 2>/dev/null \
-                    | head -1 | xargs -r dirname)
+          # Search quarto's tools tree first, then $HOME as a fallback.
+          TLMGR=$(find "$HOME/.local/share/quarto" -name tlmgr -type f 2>/dev/null | head -1)
+          if [[ -z "$TLMGR" ]]; then
+            TLMGR=$(find "$HOME" -maxdepth 10 -name tlmgr -type f 2>/dev/null | head -1)
           fi
-          if [[ -n "$FOUND" ]]; then
-            echo "TinyTeX bin: $FOUND"
-            echo "$FOUND" >> "$GITHUB_PATH"
-          else
-            echo "::warning::TinyTeX bin dir not found in expected Linux locations"
-          fi
-
-      - name: Add TinyTeX to PATH (Windows)
-        if: runner.os == 'Windows'
-        shell: powershell
-        run: |
-          # quarto install tinytex sets PATH for its own process only.
-          # The exact install location varies (quarto\tools\tinytex\, TinyTeX\,
-          # or a version-specific subdirectory).  Search the whole user profile
-          # for tlmgr.bat rather than relying on hardcoded candidate paths.
-          $searchRoots = @(
-            $env:USERPROFILE,
-            $env:APPDATA,
-            $env:LOCALAPPDATA
-          ) | Where-Object { $_ -and (Test-Path $_) } | Select-Object -Unique
-
-          $found = $null
-          foreach ($root in $searchRoots) {
-            Write-Host "Searching $root ..."
-            $match = Get-ChildItem -Path $root -Filter "tlmgr.bat" `
-                         -Recurse -ErrorAction SilentlyContinue |
-                     Select-Object -First 1
-            if ($match) {
-              $found = $match.DirectoryName
-              Write-Host "Found: $found"
-              break
-            }
-          }
-          if ($found) {
-            Add-Content $env:GITHUB_PATH $found
-            Write-Host "TinyTeX added to GITHUB_PATH: $found"
-          } else {
-            Write-Host "::error::tlmgr.bat not found after quarto install tinytex"
+          if [[ -z "$TLMGR" ]]; then
+            echo "::error::tlmgr not found anywhere under $HOME"
             exit 1
-          }
+          fi
+          echo "tlmgr: $TLMGR"
+          TLMGR_DIR=$(dirname "$TLMGR")
+          # Persist bin dir for subsequent steps (quarto render may need tlmgr)
+          echo "$TLMGR_DIR" >> "$GITHUB_PATH"
 
-      - name: Install required LaTeX packages
-        shell: bash
-        run: |
-          tlmgr install \
+          "$TLMGR" install \
             pgf xcolor colortbl booktabs multirow float wrapfig pdflscape \
             geometry preprint graphics tabu threeparttable threeparttablex \
             ulem makecell environ trimspaces caption hyperref setspace \
             fancyhdr microtype lm needspace varwidth mdwtools xstring tools
 
-      - name: Write capt-of stub (avoids tar extraction failure)
-        shell: bash
-        run: |
-          TEXMF=$(kpsewhich -var-value TEXMFHOME 2>/dev/null || echo "$HOME/texmf")
+          # Write capt-of stub (tlmgr tar extraction fails on fresh TinyTeX)
+          TEXMF=$("$TLMGR_DIR/kpsewhich" -var-value TEXMFHOME 2>/dev/null || echo "$HOME/texmf")
           DIR="$TEXMF/tex/latex/capt-of"
           mkdir -p "$DIR"
-          cat > "$DIR/capt-of.sty" <<'EOF'
-          \NeedsTeXFormat{LaTeX2e}
-          \ProvidesPackage{capt-of}[2011/08/12 v0.2 non-floating captions (stub)]
-          \newcommand\captionof[2][\@captype]{\def\@captype{#1}\caption{#2}}
-          EOF
-          mktexlsr "$TEXMF" 2>/dev/null || true
+          cat > "$DIR/capt-of.sty" <<'STUBEOF'
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{capt-of}[2011/08/12 v0.2 non-floating captions (stub)]
+\newcommand\captionof[2][\@captype]{\def\@captype{#1}\caption{#2}}
+STUBEOF
+          "$TLMGR_DIR/mktexlsr" "$TEXMF" 2>/dev/null || true
+          echo "capt-of stub written to $DIR"
+
+      # Use shell: pwsh (PowerShell 7) -- NOT shell: powershell (PS5.1).
+      # PS5.1 dot-sources the script body and swallows Write-Host output and
+      # exit codes, making it impossible to debug or detect failures reliably.
+      # PS7 outputs synchronously and propagates exit codes correctly.
+      - name: Configure TinyTeX + install LaTeX packages (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          # Search USERPROFILE, APPDATA, and LOCALAPPDATA for tlmgr.bat.
+          # quarto install tinytex uses a non-standard per-user location.
+          $roots = @($env:USERPROFILE, $env:APPDATA, $env:LOCALAPPDATA) |
+                   Where-Object { $_ -and (Test-Path $_) } |
+                   Select-Object -Unique
+          Write-Host "Roots to search: $($roots -join ', ')"
+
+          $tlmgr = $null
+          foreach ($root in $roots) {
+            Write-Host "  Scanning $root ..."
+            $hit = Get-ChildItem -Path $root -Filter "tlmgr.bat" `
+                       -Recurse -ErrorAction SilentlyContinue |
+                   Select-Object -First 1
+            if ($hit) {
+              $tlmgr = $hit.FullName
+              Write-Host "Found: $tlmgr"
+              break
+            }
+          }
+          if (-not $tlmgr) {
+            Write-Host "::error::tlmgr.bat not found in USERPROFILE/APPDATA/LOCALAPPDATA"
+            exit 1
+          }
+
+          $tlmgrDir = Split-Path $tlmgr -Parent
+          # Persist bin dir for subsequent steps
+          Add-Content $env:GITHUB_PATH $tlmgrDir
+          Write-Host "Added to GITHUB_PATH: $tlmgrDir"
+
+          # PS7 can invoke .bat files directly (routes through cmd.exe automatically)
+          $pkgs = @(
+            "pgf","xcolor","colortbl","booktabs","multirow","float","wrapfig","pdflscape",
+            "geometry","preprint","graphics","tabu","threeparttable","threeparttablex",
+            "ulem","makecell","environ","trimspaces","caption","hyperref","setspace",
+            "fancyhdr","microtype","lm","needspace","varwidth","mdwtools","xstring","tools"
+          )
+          & $tlmgr install @pkgs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          # Write capt-of stub (tlmgr tar extraction fails on fresh TinyTeX)
+          $kpsewhich = Join-Path $tlmgrDir "kpsewhich.exe"
+          $texmfHome = if (Test-Path $kpsewhich) {
+            (& $kpsewhich -var-value TEXMFHOME 2>$null) | Select-Object -First 1 | ForEach-Object { $_.Trim() }
+          } else { $null }
+          if (-not $texmfHome) { $texmfHome = "$env:USERPROFILE\texmf" }
+          Write-Host "TEXMFHOME: $texmfHome"
+
+          $captOfDir = "$texmfHome\tex\latex\capt-of"
+          New-Item -ItemType Directory -Path $captOfDir -Force | Out-Null
+          @'
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{capt-of}[2011/08/12 v0.2 non-floating captions (stub)]
+\newcommand\captionof[2][\@captype]{\def\@captype{#1}\caption{#2}}
+'@ | Set-Content "$captOfDir\capt-of.sty" -Encoding UTF8
+
+          $mktexlsr = Join-Path $tlmgrDir "mktexlsr.exe"
+          if (Test-Path $mktexlsr) { & $mktexlsr $texmfHome } else { Write-Host "mktexlsr not found, skipping" }
+          Write-Host "capt-of stub written to $captOfDir"
 
       # ── Pipeline run ─────────────────────────────────────────────────────────
       - name: Prepare data directory with fixture
