@@ -236,8 +236,22 @@ Full end-to-end pipeline (R/Quarto/TinyTeX) now reliably passes on Ubuntu + Wind
 
 **Gate:** ✅ e2e.yml run 7 — both Ubuntu and Windows generate PDF artifacts.
 
+### ✅ M18 — Installer/version consistency tests + setup_linux.sh fix (v0.21.18)
+
+**New tests added (121 total, +32):**
+- `test_version_consistency.py` (9): Quarto version in sync across setup_linux.sh,
+  setup_dependencies.ps1, e2e.yml; setup_linux.sh ASCII-only; Linux R packages vs e2e.yml and PS1
+- `test_update_checker.py` (23): `_parse_version` semver, version comparison, `check_for_update`
+  with mocked network responses, `start_background_check` callback
+
+**Bug found and fixed by new tests:**
+- `setup_linux.sh` contained 322 non-ASCII chars (U+2014 em dash, U+2500 box-drawing, U+2192 arrow)
+  — could cause encoding errors on C-locale systems. Fixed with ASCII equivalents.
+
+**Gate:** ✅ 121 tests pass; pushed to main; CI building.
+
 ---
 
 ## Next milestones
 
-*Windows install test: v0.21.16 release on a fresh Windows machine. Report any errors found.*
+*Windows install test: v0.21.18 release on a fresh Windows machine. Report any errors found.*
