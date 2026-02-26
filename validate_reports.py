@@ -139,7 +139,7 @@ def validate_all(
     print(f"   Pass rate:   {pass_rate:.1f}%  (of parseable reports)")
 
     if pass_rate >= 90.0:
-        print("\n   [SUCCESS] Gate passed — pass rate ≥ 90%")
+        print("\n   [SUCCESS] Gate passed -- pass rate >= 90%")
     else:
         print("\n   [ATTENTION] Gate not met — pass rate < 90%")
     print("=" * 70)

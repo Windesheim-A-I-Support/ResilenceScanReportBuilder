@@ -100,10 +100,11 @@ jobs:
         shell: bash
         run: |
           # quarto install tinytex does not add tlmgr to PATH.
-          # Search quarto's tools tree first, then $HOME as a fallback.
-          TLMGR=$(find "$HOME/.local/share/quarto" -name tlmgr -type f 2>/dev/null | head -1)
+          # Use || true on every find|head pipeline: with -e -o pipefail, find
+          # returning non-zero (directory missing) would kill the script silently.
+          TLMGR=$(find "$HOME/.local/share/quarto" -name tlmgr -type f 2>/dev/null | head -1 || true)
           if [[ -z "$TLMGR" ]]; then
-            TLMGR=$(find "$HOME" -maxdepth 10 -name tlmgr -type f 2>/dev/null | head -1)
+            TLMGR=$(find "$HOME" -maxdepth 10 -name tlmgr -type f 2>/dev/null | head -1 || true)
           fi
           if [[ -z "$TLMGR" ]]; then
             echo "::error::tlmgr not found anywhere under $HOME"
