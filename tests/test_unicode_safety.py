@@ -9,7 +9,6 @@ before they reach CI.
 
 import ast
 import pathlib
-import re
 
 import pytest
 
