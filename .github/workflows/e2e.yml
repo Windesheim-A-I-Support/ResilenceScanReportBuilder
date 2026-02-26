@@ -89,7 +89,13 @@ jobs:
           quarto --version
 
       # ── TinyTeX ──────────────────────────────────────────────────────────────
+      # GITHUB_TOKEN is passed so quarto can make authenticated GitHub API calls
+      # when fetching the latest rstudio/tinytex-releases release.  Without it
+      # the anonymous rate limit is often exhausted on shared CI runners, causing
+      # "Unable to determine latest release" errors.
       - name: Install TinyTeX
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: quarto install tinytex --no-prompt
 
       # Single combined step per platform: find tlmgr via full path, install
