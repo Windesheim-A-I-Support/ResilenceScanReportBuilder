@@ -214,3 +214,30 @@ emails via Outlook COM (Windows) or SMTP fallback (Office365)
   caught here before reaching a real machine).
 
 **Gate:** ✅ Both matrix jobs green on first run.
+
+### ✅ M17 — e2e CI passes on both platforms (v0.21.17)
+Full end-to-end pipeline (R/Quarto/TinyTeX) now reliably passes on Ubuntu + Windows.
+
+**Key fixes applied:**
+- YAML block scalar column-0 bug: printf/array join replace heredocs (run 4)
+- bash pipefail + find|head: `|| true` on all pipelines (run 4)
+- Windows cp1252 Unicode: `>=` not `≥`, `--` not `—` in validate_reports.py (run 4)
+- GitHub API rate limit on TinyTeX: `GITHUB_TOKEN` env var (run 5)
+- PS5.1 swallowing output: `shell: pwsh` (PS7) in Configure TinyTeX step (run 4)
+- tlmgr symlink miss: removed `-type f` from `find`, added `which tlmgr` and `$HOME/.TinyTeX` to search (run 7)
+
+**New tests added (89 total):**
+- `test_package_sync.py` (6): R+LaTeX drift between e2e.yml and setup_dependencies.ps1
+- `test_qmd_integrity.py` (6): QMD YAML, R packages in install lists, params
+- `test_report_generation.py` (13): quarto command structure (mocked subprocess)
+- `test_unicode_safety.py` (18): non-ASCII in print()/raise in pipeline scripts
+- `test_workflow_yaml.py` (16): YAML validity, structure, column-0 bug detection
+- `test_installer_sanity.py` (16): assets, version, PS1 consistency
+
+**Gate:** ✅ e2e.yml run 7 — both Ubuntu and Windows generate PDF artifacts.
+
+---
+
+## Next milestones
+
+*Windows install test: v0.21.16 release on a fresh Windows machine. Report any errors found.*
