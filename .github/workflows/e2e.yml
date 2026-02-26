@@ -126,20 +126,33 @@ jobs:
         shell: powershell
         run: |
           # quarto install tinytex sets PATH for its own process only.
-          # Find the TinyTeX bin dir and persist it to GITHUB_PATH so
-          # subsequent steps (tlmgr install, kpsewhich, mktexlsr) work.
-          $candidates = @(
-            "$env:APPDATA\quarto\tools\tinytex\bin\windows",
-            "$env:LOCALAPPDATA\quarto\tools\tinytex\bin\windows",
-            "$env:APPDATA\TinyTeX\bin\windows",
-            "$env:LOCALAPPDATA\TinyTeX\bin\windows"
-          )
-          $found = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          # The exact install location varies (quarto\tools\tinytex\, TinyTeX\,
+          # or a version-specific subdirectory).  Search the whole user profile
+          # for tlmgr.bat rather than relying on hardcoded candidate paths.
+          $searchRoots = @(
+            $env:USERPROFILE,
+            $env:APPDATA,
+            $env:LOCALAPPDATA
+          ) | Where-Object { $_ -and (Test-Path $_) } | Select-Object -Unique
+
+          $found = $null
+          foreach ($root in $searchRoots) {
+            Write-Host "Searching $root ..."
+            $match = Get-ChildItem -Path $root -Filter "tlmgr.bat" `
+                         -Recurse -ErrorAction SilentlyContinue |
+                     Select-Object -First 1
+            if ($match) {
+              $found = $match.DirectoryName
+              Write-Host "Found: $found"
+              break
+            }
+          }
           if ($found) {
-            Write-Host "TinyTeX bin: $found"
             Add-Content $env:GITHUB_PATH $found
+            Write-Host "TinyTeX added to GITHUB_PATH: $found"
           } else {
-            Write-Host "::warning::TinyTeX bin dir not found in expected locations"
+            Write-Host "::error::tlmgr.bat not found after quarto install tinytex"
+            exit 1
           }
 
       - name: Install required LaTeX packages
