@@ -409,8 +409,120 @@ if ($rscript) {
 }
 
 Write-Log "=== Dependency setup complete ==="
+
+# ---- Requirements verification report ---------------------------------------
+# Written to requirements_check.log so users and the app can read a clear
+# PASS/FAIL summary without parsing the full setup transcript.
+$REQ_LOG = "$LOG_DIR\requirements_check.log"
+$stamp    = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+$lines    = @()
+$allOk    = $true
+
+function Req-Line($label, $ok, $detail) {
+    $status = if ($ok) { "OK  " } else { "FAIL" }
+    return "  [$status] $label : $detail"
+}
+
+$lines += "ResilienceScan requirements check — $stamp"
+$lines += "=" * 60
+
+# ── R ────────────────────────────────────────────────────────────────────────
+$rscript = Find-Rscript
+if ($rscript) {
+    $rVer = (& $rscript --version 2>&1) -join " "
+    if ($rVer -match "R version (\S+)") { $rVer = "R $($matches[1])" }
+    $lines += Req-Line "R         " $true  "$rVer  ($rscript)"
+    # Add R bin dir to PATH so subsequent checks can use Rscript by name
+    $rBin = Split-Path $rscript
+    $env:PATH = "$rBin;$env:PATH"
+} else {
+    $lines += Req-Line "R         " $false "NOT FOUND — install from https://cran.r-project.org"
+    $allOk = $false
+}
+
+# ── Quarto ───────────────────────────────────────────────────────────────────
+$quartoCmd = Get-Command quarto -ErrorAction SilentlyContinue
+if ($quartoCmd) {
+    $qVer = (& quarto --version 2>&1) -join ""
+    $lines += Req-Line "Quarto    " $true  "Quarto $($qVer.Trim())  ($($quartoCmd.Source))"
+} else {
+    $lines += Req-Line "Quarto    " $false "NOT FOUND — install from https://quarto.org"
+    $allOk = $false
+}
+
+# ── TinyTeX (tlmgr) ──────────────────────────────────────────────────────────
+$tlmgrCandidates = @(
+    "C:\ProgramData\TinyTeX\bin\windows\tlmgr.bat",
+    "$env:APPDATA\quarto\tools\tinytex\bin\windows\tlmgr.bat",
+    "$env:LOCALAPPDATA\quarto\tools\tinytex\bin\windows\tlmgr.bat",
+    "C:\Windows\system32\config\systemprofile\AppData\Roaming\TinyTeX\bin\windows\tlmgr.bat",
+    "C:\Windows\system32\config\systemprofile\AppData\Local\TinyTeX\bin\windows\tlmgr.bat",
+    "C:\Windows\system32\config\systemprofile\AppData\Roaming\quarto\tools\tinytex\bin\windows\tlmgr.bat",
+    "C:\Windows\system32\config\systemprofile\AppData\Local\quarto\tools\tinytex\bin\windows\tlmgr.bat"
+)
+$tlmgrPath = ($tlmgrCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1)
+if (-not $tlmgrPath) {
+    $cmd = Get-Command tlmgr -ErrorAction SilentlyContinue
+    if ($cmd) { $tlmgrPath = $cmd.Source }
+}
+if ($tlmgrPath) {
+    $tlVer = (cmd /c "$tlmgrPath" --version 2>&1) -join " "
+    if ($tlVer -match "TeX Live (\d+)") { $tlVer = "TinyTeX / TeX Live $($matches[1])" }
+    $lines += Req-Line "TinyTeX   " $true  "$tlVer  ($tlmgrPath)"
+} else {
+    $lines += Req-Line "TinyTeX   " $false "tlmgr NOT FOUND — run: quarto install tinytex"
+    $allOk = $false
+}
+
+# ── R packages ───────────────────────────────────────────────────────────────
+$lines += ""
+$lines += "  R packages (lib: $R_LIB):"
+if ($rscript -and (Test-Path $R_LIB)) {
+    $pkgList  = ($R_PACKAGES | ForEach-Object { "'$_'" }) -join ", "
+    $R_LIB_R  = $R_LIB.Replace('\', '/')
+    $checkScript = "pkgs <- c($pkgList); inst <- rownames(installed.packages(lib.loc='$R_LIB_R')); for(p in pkgs){ cat(if(p %in% inst) 'OK' else 'MISSING', p, '\n') }"
+    $pkgResults  = (& $rscript --no-save -e $checkScript 2>&1)
+    $missingPkgs = @()
+    foreach ($line in $pkgResults) {
+        if ($line -match "^(OK|MISSING)\s+(\S+)") {
+            $pkgOk   = ($matches[1] -eq "OK")
+            $pkgName = $matches[2]
+            $lines  += "    $(if($pkgOk){'[OK  ]'}else{'[FAIL]'}) $pkgName"
+            if (-not $pkgOk) { $missingPkgs += $pkgName; $allOk = $false }
+        }
+    }
+    if ($missingPkgs.Count -eq 0) {
+        $lines += "  [OK  ] All $($R_PACKAGES.Count) required packages present"
+    } else {
+        $lines += "  [FAIL] Missing packages ($($missingPkgs.Count)): $($missingPkgs -join ', ')"
+    }
+} elseif (-not $rscript) {
+    $lines += "    [SKIP] Cannot check — R not found"
+} else {
+    $lines += "    [FAIL] r-library directory not found: $R_LIB"
+    $allOk = $false
+}
+
+# ── Summary ───────────────────────────────────────────────────────────────────
+$lines += ""
+$lines += "=" * 60
+if ($allOk) {
+    $lines += "RESULT: PASS — all requirements met. App is ready to generate reports."
+} else {
+    $lines += "RESULT: FAIL — one or more requirements are missing."
+    $lines += "        Re-run setup or check setup_error.log for details."
+}
+$lines += "=" * 60
+
+# Write the report
+$lines | Set-Content -Path $REQ_LOG -Encoding UTF8
+# Also echo to the main log
+$lines | ForEach-Object { Write-Log $_ }
+
+Write-Log "Requirements check written to: $REQ_LOG"
 Write-Log "Log files:"
 Write-Log "  Main log   : $LOG_FILE"
+Write-Log "  Req check  : $REQ_LOG"
 Write-Log "  Transcript : $TRANSCRIPT"
 Write-Log "  Error log  : $ERROR_LOG"
 
