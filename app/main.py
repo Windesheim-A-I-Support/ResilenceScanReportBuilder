@@ -144,6 +144,49 @@ def _r_library_path() -> Path | None:
     return None
 
 
+def _check_r_packages_ready() -> str | None:
+    """Return None if all required R packages are findable, or an error string.
+
+    Uses the same R_LIBS setup that the render subprocess uses, so this
+    check is representative of what will happen during quarto render.
+    Returns immediately (< 5 s) and is safe to call from any thread.
+    """
+    from gui_system_check import _R_PACKAGES, _find_rscript
+
+    rscript = _find_rscript()
+    if not rscript:
+        return "Rscript not found on PATH"
+
+    env = os.environ.copy()
+    r_lib = _r_library_path()
+    if r_lib is not None and r_lib.exists():
+        existing = env.get("R_LIBS", "")
+        env["R_LIBS"] = f"{r_lib}{os.pathsep}{existing}" if existing else str(r_lib)
+
+    pkg_list = ", ".join(f'"{p}"' for p in _R_PACKAGES)
+    script = (
+        f"pkgs <- c({pkg_list}); "
+        "missing <- pkgs[!pkgs %in% rownames(installed.packages())];"
+        "if (length(missing) == 0) cat('OK') "
+        "else cat('MISSING:', paste(missing, collapse=', '))"
+    )
+    try:
+        result = subprocess.run(
+            [rscript, "-e", script],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            env=env,
+        )
+        out = (result.stdout + result.stderr).strip()
+    except Exception as e:
+        return f"R check error: {e}"
+
+    if out.strip() == "OK":
+        return None
+    return out
+
+
 class ResilienceScanGUI:
     """Main GUI Application for ResilienceScan Control Center"""
 
@@ -1160,8 +1203,8 @@ class ResilienceScanGUI:
     # ==================== Data Methods ====================
 
     def _startup_guard(self):
-        """Check that R, Quarto, and TinyTeX are present; show a blocking
-        warning dialog if any critical component is missing."""
+        """Check that R, Quarto, TinyTeX, and R packages are present; show a
+        blocking warning dialog if any critical component is missing."""
         checker = SystemChecker()
         result = checker.check_all()
 
@@ -1178,6 +1221,23 @@ class ResilienceScanGUI:
                 "The installation may be incomplete.  Report generation will\n"
                 "not work until these are installed.\n\n"
                 "You can continue, but generating PDFs will fail.",
+            )
+
+        # Separately warn if R packages are missing (non-blocking, but important).
+        if not result.get("r_packages", {}).get("ok"):
+            log_hint = (
+                r"C:\ProgramData\ResilienceScan\setup.log"
+                if sys.platform == "win32"
+                else "~/.local/share/resiliencescan/setup.log"
+            )
+            messagebox.showwarning(
+                "R Packages Not Ready",
+                "Required R packages are not yet installed.\n\n"
+                "The background setup may still be running (allow 5–15 minutes\n"
+                "after installation) or it may have failed.\n\n"
+                f"Check the setup log:\n{log_hint}\n\n"
+                "Report generation will fail until packages are available.\n"
+                "Use the System Check button to re-check.",
             )
 
     def load_config(self):
@@ -2209,6 +2269,28 @@ TOP 10 MOST ENGAGED COMPANIES:
 
         self.log_gen(f"\n[START] Generating single report for {company} - {person}")
 
+        # Pre-flight: verify R packages before trying quarto render
+        r_pkg_err = _check_r_packages_ready()
+        if r_pkg_err:
+            log_hint = (
+                r"C:\ProgramData\ResilienceScan\setup.log"
+                if sys.platform == "win32"
+                else "~/.local/share/resiliencescan/setup.log"
+            )
+            self.log_gen(f"[ERROR] R packages not ready: {r_pkg_err}")
+            self.log_gen(f"[ERROR] Check setup log: {log_hint}")
+            self.root.after(
+                0,
+                lambda: messagebox.showerror(
+                    "R Packages Missing",
+                    f"Required R packages are not installed.\n\n{r_pkg_err}\n\n"
+                    "The background setup may still be running or may have failed.\n\n"
+                    f"Check the setup log:\n{log_hint}\n\n"
+                    "Use the System Check button for details.",
+                ),
+            )
+            return
+
         try:
             # Create safe filenames
             def safe_filename(name):
@@ -2502,6 +2584,37 @@ TOP 10 MOST ENGAGED COMPANIES:
     def generate_reports_thread(self):
         """Background thread for report generation"""
         self.log_gen("[START] Starting batch report generation...")
+
+        # Pre-flight: verify R packages are available before wasting time on 519 renders
+        r_pkg_err = _check_r_packages_ready()
+        if r_pkg_err:
+            log_hint = (
+                r"C:\ProgramData\ResilienceScan\setup.log"
+                if sys.platform == "win32"
+                else "~/.local/share/resiliencescan/setup.log"
+            )
+            self.log_gen(f"[ERROR] R packages not ready — aborting batch.")
+            self.log_gen(f"[ERROR] {r_pkg_err}")
+            self.log_gen(f"[ERROR] Check setup log: {log_hint}")
+            self.root.after(
+                0,
+                lambda: messagebox.showerror(
+                    "R Packages Missing",
+                    f"Required R packages are not installed.\n\n{r_pkg_err}\n\n"
+                    "The background setup may still be running or may have failed.\n\n"
+                    f"Check the setup log:\n{log_hint}\n\n"
+                    "Use the System Check button for details.",
+                ),
+            )
+
+            def _reset_ui():
+                self.is_generating = False
+                self.gen_start_btn.config(state=tk.NORMAL)
+                self.gen_cancel_btn.config(state=tk.DISABLED)
+                self.gen_current_label.config(text="Aborted — R packages missing")
+
+            self.root.after(0, _reset_ui)
+            return
 
         total = len(self.df)
         success = 0
