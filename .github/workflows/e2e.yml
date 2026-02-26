@@ -79,9 +79,13 @@ jobs:
         run: |
           Invoke-WebRequest "${{ matrix.quarto_url }}" -OutFile quarto.msi -UseBasicParsing
           Start-Process msiexec -ArgumentList "/i","quarto.msi","/qn","/norestart" -Wait
-          # Refresh PATH so quarto is found
-          $env:PATH = [System.Environment]::GetEnvironmentVariable("PATH","Machine") + ";" +
-                      [System.Environment]::GetEnvironmentVariable("PATH","User")
+          # Persist Quarto bin dir to GITHUB_PATH so ALL subsequent steps can
+          # find quarto.  Setting $env:PATH alone only affects this one step.
+          $quartoDir = "C:\Program Files\Quarto\bin"
+          if (Test-Path $quartoDir) {
+            Add-Content $env:GITHUB_PATH $quartoDir
+            $env:PATH = "$quartoDir;$env:PATH"
+          }
           quarto --version
 
       # ── TinyTeX ──────────────────────────────────────────────────────────────

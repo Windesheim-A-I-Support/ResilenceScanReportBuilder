@@ -1,6 +1,6 @@
 [project]
 name = "my-app"            # TODO: rename to match your repository
-version = "0.21.15"
+version = "0.21.16"
 description = "TODO: describe your application"
 requires-python = ">=3.11"
 
