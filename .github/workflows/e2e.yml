@@ -92,6 +92,35 @@ jobs:
       - name: Install TinyTeX
         run: quarto install tinytex --no-prompt
 
+      - name: Add TinyTeX to PATH (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          # quarto install tinytex does not add tlmgr to PATH.
+          # Quarto 1.4+ installs TinyTeX under ~/.local/share/quarto/tools/tinytex/
+          CANDIDATES=(
+            "$HOME/.local/share/quarto/tools/tinytex/bin/x86_64-linux"
+            "$HOME/.local/share/quarto/tools/tinytex/bin/aarch64-linux"
+          )
+          FOUND=""
+          for dir in "${CANDIDATES[@]}"; do
+            if [[ -d "$dir" ]]; then
+              FOUND="$dir"
+              break
+            fi
+          done
+          # Fallback: scan the quarto tools tree for the tlmgr binary
+          if [[ -z "$FOUND" ]]; then
+            FOUND=$(find "$HOME/.local/share/quarto" -name tlmgr -type f 2>/dev/null \
+                    | head -1 | xargs -r dirname)
+          fi
+          if [[ -n "$FOUND" ]]; then
+            echo "TinyTeX bin: $FOUND"
+            echo "$FOUND" >> "$GITHUB_PATH"
+          else
+            echo "::warning::TinyTeX bin dir not found in expected Linux locations"
+          fi
+
       - name: Add TinyTeX to PATH (Windows)
         if: runner.os == 'Windows'
         shell: powershell
