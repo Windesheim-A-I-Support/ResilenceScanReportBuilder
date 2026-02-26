@@ -7,7 +7,18 @@ name: End-to-End Pipeline Test
 
 on:
   workflow_dispatch:
-  # Uncomment to run automatically on release tags once stable:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/e2e.yml"
+      - "generate_all_reports.py"
+      - "validate_reports.py"
+      - "validate_single_report.py"
+      - "clean_data.py"
+      - "convert_data.py"
+      - "ResilienceReport.qmd"
+      - "tests/fixtures/**"
+  # Uncomment to run on release tags once stable:
   # push:
   #   tags: ["v*"]
 
