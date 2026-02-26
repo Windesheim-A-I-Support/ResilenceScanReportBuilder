@@ -152,9 +152,16 @@ def _find_tlmgr() -> str | None:
         # Quarto 1.4+ tools dir on Linux/Mac
         home = str(Path.home())
         linux_candidates = [
-            os.path.join(home, ".local/share/quarto/tools/tinytex/bin/x86_64-linux/tlmgr"),
-            os.path.join(home, ".local/share/quarto/tools/tinytex/bin/aarch64-linux/tlmgr"),
-            os.path.join(home, "Library/Application Support/quarto/tools/tinytex/bin/universal-darwin/tlmgr"),
+            os.path.join(
+                home, ".local/share/quarto/tools/tinytex/bin/x86_64-linux/tlmgr"
+            ),
+            os.path.join(
+                home, ".local/share/quarto/tools/tinytex/bin/aarch64-linux/tlmgr"
+            ),
+            os.path.join(
+                home,
+                "Library/Application Support/quarto/tools/tinytex/bin/universal-darwin/tlmgr",
+            ),
         ]
         for c in linux_candidates:
             if os.path.exists(c):

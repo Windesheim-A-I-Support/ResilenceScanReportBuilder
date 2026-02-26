@@ -87,7 +87,11 @@ def _sync_template() -> None:
     dst.mkdir(parents=True, exist_ok=True)
     src_qmd = src / "ResilienceReport.qmd"
     dst_qmd = dst / "ResilienceReport.qmd"
-    if dst_qmd.exists() and src_qmd.exists() and src_qmd.stat().st_mtime <= dst_qmd.stat().st_mtime:
+    if (
+        dst_qmd.exists()
+        and src_qmd.exists()
+        and src_qmd.stat().st_mtime <= dst_qmd.stat().st_mtime
+    ):
         return  # already up-to-date
     for name in ("ResilienceReport.qmd", "references.bib", "QTDublinIrish.otf"):
         s = src / name
@@ -107,7 +111,9 @@ _DATA_ROOT = _data_root()  # data/, reports/, logs — always writable
 _sync_template()  # copy QMD + assets to _DATA_ROOT so quarto can write .quarto/ next to them
 DATA_FILE = _DATA_ROOT / "data" / "cleaned_master.csv"
 REPORTS_DIR = _DATA_ROOT / "reports"
-TEMPLATE = _DATA_ROOT / "ResilienceReport.qmd"  # must be in writable _DATA_ROOT, not ROOT_DIR
+TEMPLATE = (
+    _DATA_ROOT / "ResilienceReport.qmd"
+)  # must be in writable _DATA_ROOT, not ROOT_DIR
 LOG_FILE = _DATA_ROOT / "gui_log.txt"
 
 
@@ -2302,8 +2308,12 @@ TOP 10 MOST ENGAGED COMPANIES:
             # Execute quarto render — cwd=_DATA_ROOT so quarto writes .quarto/
             # there (writable) and R finds data/cleaned_master.csv correctly.
             result = subprocess.run(
-                cmd, cwd=str(_DATA_ROOT), capture_output=True, text=True,
-                timeout=300, env=single_env,
+                cmd,
+                cwd=str(_DATA_ROOT),
+                capture_output=True,
+                text=True,
+                timeout=300,
+                env=single_env,
             )
 
             if result.returncode == 0:
