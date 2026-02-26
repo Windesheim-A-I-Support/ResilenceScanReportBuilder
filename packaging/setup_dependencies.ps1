@@ -69,11 +69,11 @@ $R_PACKAGES = @(
 
 # LaTeX packages required by ResilienceReport.qmd + kableExtra dependencies.
 # Use TLmgr repository package names (not LaTeX command/file names):
-#   afterpage  → preprint  (preprint bundle contains afterpage.sty)
-#   graphicx   → graphics  (graphics bundle contains graphicx.sty)
-#   array      → omitted   (part of LaTeX base / tools, already in TinyTeX core)
-#   longtable  → omitted   (part of tools bundle, already listed)
-#   tikz       → omitted   (provided by pgf, already listed)
+#   afterpage  -> preprint  (preprint bundle contains afterpage.sty)
+#   graphicx   -> graphics  (graphics bundle contains graphicx.sty)
+#   array      -> omitted   (part of LaTeX base / tools, already in TinyTeX core)
+#   longtable  -> omitted   (part of tools bundle, already listed)
+#   tikz       -> omitted   (provided by pgf, already listed)
 $LATEX_PACKAGES = @(
     "pgf", "xcolor", "colortbl", "booktabs", "multirow",
     "float", "wrapfig", "pdflscape", "geometry", "preprint", "graphics",
@@ -100,7 +100,7 @@ Write-Log "Running as : $([System.Security.Principal.WindowsIdentity]::GetCurren
 
 # ---- Helper: find Rscript.exe (PS 5.1 compatible -- no ?. operator) ---------
 function Find-Rscript {
-    # Prefer the target R version explicitly — this ensures that after a
+    # Prefer the target R version explicitly - this ensures that after a
     # version upgrade the new R binary is used even when the old version is
     # still first on PATH.
     $candidates = @(
@@ -146,13 +146,13 @@ $requiredVersion  = [version]$R_VERSION
 
 $needInstall = $false
 if (-not $rscriptBefore) {
-    Write-Log "R not found — installing $R_VERSION..."
+    Write-Log "R not found - installing $R_VERSION..."
     $needInstall = $true
 } elseif ($installedVersion -and ($installedVersion -lt $requiredVersion)) {
-    Write-Log "R $installedVersion found but < $R_VERSION — upgrading to latest..."
+    Write-Log "R $installedVersion found but < $R_VERSION - upgrading to latest..."
     $needInstall = $true
 } else {
-    Write-Log "R $installedVersion already present and up to date — skipping install."
+    Write-Log "R $installedVersion already present and up to date - skipping install."
 }
 
 if ($needInstall) {
@@ -257,7 +257,7 @@ if (-not $tlmgr) {
         # Quarto 1.4+ installs to quarto\tools\tinytex\; older versions to TinyTeX\.
         $tinyTexBin = $null
         $candidates = @(
-            # Quarto 1.4+ tools dir (current account — SYSTEM when this script runs)
+            # Quarto 1.4+ tools dir (current account - SYSTEM when this script runs)
             "$env:APPDATA\quarto\tools\tinytex\bin\windows",
             "$env:LOCALAPPDATA\quarto\tools\tinytex\bin\windows",
             # Hardcoded SYSTEM profile quarto tools (in case env vars not set)
@@ -291,11 +291,11 @@ if (-not $tlmgr) {
                     & robocopy $tinyTexRoot $publicRoot /E /NFL /NDL /NJH /NJS /NC /NS /NP /MT:4 2>&1 | Out-Null
                     Write-Log "TinyTeX copied to $publicRoot"
                 } catch {
-                    Write-Log "WARNING: robocopy failed ($($_.Exception.Message)) — falling back to original path."
+                    Write-Log "WARNING: robocopy failed ($($_.Exception.Message)) - falling back to original path."
                     $publicBin = $tinyTexBin   # fall back to original
                 }
             } else {
-                Write-Log "C:\ProgramData\TinyTeX already present — skipping copy."
+                Write-Log "C:\ProgramData\TinyTeX already present - skipping copy."
             }
 
             # Add the public TinyTeX bin to machine-wide PATH
@@ -414,24 +414,24 @@ if ($rscript) {
     # Grant Users read access to the R library so the app can load packages
     icacls $R_LIB /grant "BUILTIN\Users:(OI)(CI)RX" /T /Q 2>&1 | Out-Null
     $pkgList = ($R_PACKAGES | ForEach-Object { "'" + $_ + "'" }) -join ", "
-    # R requires forward slashes in paths — backslashes in Windows paths cause
+    # R requires forward slashes in paths - backslashes in Windows paths cause
     # "unrecognized escape" errors (e.g. \P in \Program Files is not a valid escape).
     $R_LIB_R = $R_LIB.Replace('\', '/')
     try {
-        # type='binary' forces pre-compiled Windows packages — avoids source-build
+        # type='binary' forces pre-compiled Windows packages - avoids source-build
         # failures where a package (e.g. ggrepel) is listed as "not available" when
         # only the source version exists for that R minor version.
         & $rscript -e "install.packages(c($pkgList), lib='$R_LIB_R', repos='https://cloud.r-project.org', type='binary', quiet=FALSE)" 2>&1 |
             ForEach-Object { Write-Log "  [R] $_" }
 
-        # Verify all packages actually installed — type='binary' + quiet=FALSE still
+        # Verify all packages actually installed - type='binary' + quiet=FALSE still
         # doesn't set a non-zero exit code on partial failure, so check explicitly.
         $verifyScript = "missing <- c($pkgList)[!c($pkgList) %in% rownames(installed.packages(lib.loc='$R_LIB_R'))]; if(length(missing)==0) cat('OK') else cat('MISSING:', paste(missing, collapse=','))"
         $verifyOut = (& $rscript --no-save -e $verifyScript 2>&1) -join " "
         if ($verifyOut -match "^OK") {
             Write-Log "R package verification: all $($R_PACKAGES.Count) packages present."
         } else {
-            Write-Log "WARNING: Some packages missing after bulk install — retrying individually: $verifyOut"
+            Write-Log "WARNING: Some packages missing after bulk install - retrying individually: $verifyOut"
             Add-Content -Path $ERROR_LOG -Value "[R packages verify] $verifyOut" -Encoding UTF8
             # Retry each missing package one at a time with binary type
             $missingCsv = ($verifyOut -replace "MISSING:\s*", "").Trim()
@@ -479,10 +479,10 @@ function Req-Line($label, $ok, $detail) {
     return "  [$status] $label : $detail"
 }
 
-$lines += "ResilienceScan requirements check — $stamp"
+$lines += "ResilienceScan requirements check - $stamp"
 $lines += "=" * 60
 
-# ── R ────────────────────────────────────────────────────────────────────────
+# -- R ------------------------------------------------------------------------
 $rscript = Find-Rscript
 if ($rscript) {
     $rVer = (& $rscript --version 2>&1) -join " "
@@ -492,21 +492,21 @@ if ($rscript) {
     $rBin = Split-Path $rscript
     $env:PATH = "$rBin;$env:PATH"
 } else {
-    $lines += Req-Line "R         " $false "NOT FOUND — install from https://cran.r-project.org"
+    $lines += Req-Line "R         " $false "NOT FOUND - install from https://cran.r-project.org"
     $allOk = $false
 }
 
-# ── Quarto ───────────────────────────────────────────────────────────────────
+# -- Quarto -------------------------------------------------------------------
 $quartoCmd = Get-Command quarto -ErrorAction SilentlyContinue
 if ($quartoCmd) {
     $qVer = (& quarto --version 2>&1) -join ""
     $lines += Req-Line "Quarto    " $true  "Quarto $($qVer.Trim())  ($($quartoCmd.Source))"
 } else {
-    $lines += Req-Line "Quarto    " $false "NOT FOUND — install from https://quarto.org"
+    $lines += Req-Line "Quarto    " $false "NOT FOUND - install from https://quarto.org"
     $allOk = $false
 }
 
-# ── TinyTeX (tlmgr) ──────────────────────────────────────────────────────────
+# -- TinyTeX (tlmgr) ----------------------------------------------------------
 $tlmgrCandidates = @(
     "C:\ProgramData\TinyTeX\bin\windows\tlmgr.bat",
     "$env:APPDATA\quarto\tools\tinytex\bin\windows\tlmgr.bat",
@@ -526,11 +526,11 @@ if ($tlmgrPath) {
     if ($tlVer -match "TeX Live (\d+)") { $tlVer = "TinyTeX / TeX Live $($matches[1])" }
     $lines += Req-Line "TinyTeX   " $true  "$tlVer  ($tlmgrPath)"
 } else {
-    $lines += Req-Line "TinyTeX   " $false "tlmgr NOT FOUND — run: quarto install tinytex"
+    $lines += Req-Line "TinyTeX   " $false "tlmgr NOT FOUND - run: quarto install tinytex"
     $allOk = $false
 }
 
-# ── R packages ───────────────────────────────────────────────────────────────
+# -- R packages ---------------------------------------------------------------
 $lines += ""
 $lines += "  R packages (lib: $R_LIB):"
 if ($rscript -and (Test-Path $R_LIB)) {
@@ -553,19 +553,19 @@ if ($rscript -and (Test-Path $R_LIB)) {
         $lines += "  [FAIL] Missing packages ($($missingPkgs.Count)): $($missingPkgs -join ', ')"
     }
 } elseif (-not $rscript) {
-    $lines += "    [SKIP] Cannot check — R not found"
+    $lines += "    [SKIP] Cannot check - R not found"
 } else {
     $lines += "    [FAIL] r-library directory not found: $R_LIB"
     $allOk = $false
 }
 
-# ── Summary ───────────────────────────────────────────────────────────────────
+# -- Summary -------------------------------------------------------------------
 $lines += ""
 $lines += "=" * 60
 if ($allOk) {
-    $lines += "RESULT: PASS — all requirements met. App is ready to generate reports."
+    $lines += "RESULT: PASS - all requirements met. App is ready to generate reports."
 } else {
-    $lines += "RESULT: FAIL — one or more requirements are missing."
+    $lines += "RESULT: FAIL - one or more requirements are missing."
     $lines += "        Re-run setup or check setup_error.log for details."
 }
 $lines += "=" * 60

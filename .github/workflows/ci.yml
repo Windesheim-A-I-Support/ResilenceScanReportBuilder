@@ -45,6 +45,34 @@ jobs:
       - name: Test
         run: pytest --maxfail=1 --disable-warnings -q
 
+      - name: Check PS1 script (syntax + encoding)
+        shell: pwsh
+        run: |
+          # PowerShell 5.1 on Windows reads .ps1 files as Windows-1252.
+          # Non-ASCII bytes (e.g. UTF-8 em dash E2 80 94) contain 0x94 which
+          # Win-1252 maps to a right double-quote, silently closing strings and
+          # producing cryptic parse errors on the target machine.
+          # This check rejects any non-ASCII character before it can ship.
+          $ps1 = "packaging/setup_dependencies.ps1"
+          $content = Get-Content $ps1 -Raw
+          $hits = [regex]::Matches($content, '[^\x00-\x7F]')
+          if ($hits.Count -gt 0) {
+            foreach ($m in $hits) {
+              $cp = [int][char]$m.Value[0]
+              Write-Host "::error file=${ps1}::Non-ASCII char U+$($cp.ToString('X4')) at byte offset $($m.Index) -- use ASCII equivalent"
+            }
+            exit 1
+          }
+          # Full syntax parse via PowerShell's own parser
+          $parseErrors = $null
+          $null = [System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path $ps1).Path, [ref]$null, [ref]$parseErrors)
+          if ($parseErrors.Count -gt 0) {
+            foreach ($e in $parseErrors) { Write-Host "::error file=${ps1}::$e" }
+            exit 1
+          }
+          Write-Host "PS1 check passed: ASCII-clean and syntax OK."
+
   # ── Detect whether a new release is needed ───────────────────────────────────
   version-check:
     needs: test
