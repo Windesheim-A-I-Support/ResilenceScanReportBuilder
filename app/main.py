@@ -2768,8 +2768,13 @@ TOP 10 MOST ENGAGED COMPANIES:
                         stdout_lines.append(line)
                     # Check for cancel between lines
                     if not self.is_generating:
-                        self._gen_proc.kill()
-                        self._gen_proc.wait()
+                        proc = self._gen_proc
+                        if proc is not None:
+                            try:
+                                proc.kill()
+                                proc.wait()
+                            except Exception:
+                                pass
                         if temp_path.exists():
                             temp_path.unlink()
                         self._gen_proc = None
@@ -2838,6 +2843,8 @@ TOP 10 MOST ENGAGED COMPANIES:
                         )
                         failed += 1
                 else:
+                    if temp_path.exists():
+                        temp_path.unlink()
                     self.log_gen(
                         f"  [ERROR] Error: Exit code {returncode} (output logged above)"
                     )
