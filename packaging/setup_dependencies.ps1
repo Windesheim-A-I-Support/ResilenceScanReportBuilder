@@ -41,30 +41,15 @@ trap {
     exit 1
 }
 
-$R_VERSION_FALLBACK = "4.5.1"  # used if CRAN discovery fails
-$QUARTO_VERSION     = "1.6.39"
+$R_VERSION      = "4.5.1"
+$QUARTO_VERSION = "1.6.39"
 
 # ---- Logging ----------------------------------------------------------------
-# Must be defined BEFORE any other code that calls Write-Log.
 function Write-Log {
     param($msg)
     $line = "[SETUP $(Get-Date -Format 'HH:mm:ss')] $msg"
     Write-Host $line
     Add-Content -Path $LOG_FILE -Value $line -Encoding UTF8
-}
-
-# Auto-discover current R version from CRAN so we always install the latest.
-# Falls back to $R_VERSION_FALLBACK if the network request fails.
-$R_VERSION = $R_VERSION_FALLBACK
-try {
-    $dcf = (Invoke-WebRequest -Uri "https://cran.r-project.org/bin/windows/base/VERSION-INFO.dcf" `
-                -UseBasicParsing -TimeoutSec 15).Content
-    if ($dcf -match "(?m)^Version:\s*(\d+\.\d+\.\d+)") {
-        $R_VERSION = $matches[1]
-        Write-Log "Discovered current R version: $R_VERSION"
-    }
-} catch {
-    Write-Log "Could not auto-discover R version (network?), using fallback: $R_VERSION"
 }
 $R_LIB          = "$InstallDir\r-library"
 $TMP            = "C:\Windows\Temp"        # reliable under SYSTEM account
