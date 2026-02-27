@@ -44,3 +44,4 @@ config.yml
 
 /.quarto/
 **/*.quarto_ipynb
+app/_version.py

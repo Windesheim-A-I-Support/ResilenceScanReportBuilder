@@ -152,6 +152,15 @@ jobs:
           sudo apt-get install -y --no-install-recommends python3-tk tk-dev
 
       # ── Windows ──────────────────────────────────────────────────────────────
+      - name: Write _version.py
+        shell: python
+        run: |
+          import os
+          ver = os.environ["APP_VERSION"]
+          with open("app/_version.py", "w") as f:
+              f.write(f'__version__ = "{ver}"\n')
+          print(f"Wrote app/_version.py: {ver}")
+
       - name: Generate Windows version resource
         if: runner.os == 'Windows'
         shell: python
