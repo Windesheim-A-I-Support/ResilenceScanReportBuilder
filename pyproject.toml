@@ -1,7 +1,7 @@
 [project]
-name = "my-app"            # TODO: rename to match your repository
+name = "ResilenceScanReportBuilder"
 version = "0.21.23"
-description = "TODO: describe your application"
+description = "Desktop app for generating personalised ResilienceScan PDF reports using Quarto, R, and TinyTeX"
 requires-python = ">=3.11"
 
 [tool.ruff]
