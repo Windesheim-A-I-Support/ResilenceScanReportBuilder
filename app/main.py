@@ -68,6 +68,24 @@ def _data_root() -> Path:
     return Path(__file__).resolve().parents[1]
 
 
+def _default_output_dir() -> Path:
+    """User-visible default folder for generated PDF reports.
+
+    In the frozen app we place reports in Documents/ResilienceScanReports so
+    they are easy for users to find.  AppData/Roaming is hidden by default on
+    Windows and confuses users.  In dev mode we keep the repo reports/ folder.
+    """
+    if not getattr(sys, "frozen", False):
+        return _data_root() / "reports"
+    if sys.platform == "win32":
+        docs = Path(os.environ.get("USERPROFILE", str(Path.home()))) / "Documents"
+    else:
+        docs = Path.home() / "Documents"
+    if not docs.exists():
+        docs = Path.home()
+    return docs / "ResilienceScanReports"
+
+
 def _sync_template() -> None:
     """Copy QMD and companion assets from _asset_root() to _data_root().
 
@@ -111,6 +129,7 @@ _DATA_ROOT = _data_root()  # data/, reports/, logs — always writable
 _sync_template()  # copy QMD + assets to _DATA_ROOT so quarto can write .quarto/ next to them
 DATA_FILE = _DATA_ROOT / "data" / "cleaned_master.csv"
 REPORTS_DIR = _DATA_ROOT / "reports"
+DEFAULT_OUTPUT_DIR = _default_output_dir()  # user-visible reports folder
 TEMPLATE = (
     _DATA_ROOT / "ResilienceReport.qmd"
 )  # must be in writable _DATA_ROOT, not ROOT_DIR
@@ -638,7 +657,7 @@ class ResilienceScanGUI:
         ttk.Label(controls_frame, text="Output Folder:").grid(
             row=1, column=0, sticky=tk.W, pady=5
         )
-        self.output_folder_var = tk.StringVar(value=str(REPORTS_DIR))
+        self.output_folder_var = tk.StringVar(value=str(DEFAULT_OUTPUT_DIR))
         ttk.Entry(controls_frame, textvariable=self.output_folder_var, width=50).grid(
             row=1, column=1, sticky=(tk.W, tk.E), padx=10
         )
@@ -2402,7 +2421,7 @@ TOP 10 MOST ENGAGED COMPANIES:
             if result.returncode == 0:
                 if temp_path.exists():
                     shutil.move(str(temp_path), str(output_file))
-                    self.log_gen(f"[OK] Success: {output_filename}")
+                    self.log_gen(f"[OK] Saved: {output_file}")
 
                     # Validate the generated report
                     try:
@@ -2794,7 +2813,7 @@ TOP 10 MOST ENGAGED COMPANIES:
                         import shutil
 
                         shutil.move(str(temp_path), str(output_file))
-                        self.log_gen(f"  [OK] Success: {output_filename}")
+                        self.log_gen(f"  [OK] Saved: {output_file}")
 
                         # Validate the generated report
                         try:
@@ -2937,7 +2956,7 @@ TOP 10 MOST ENGAGED COMPANIES:
     def browse_output_folder(self):
         """Browse for output folder"""
         folder = filedialog.askdirectory(
-            title="Select Output Folder", initialdir=REPORTS_DIR
+            title="Select Output Folder", initialdir=self.output_folder_var.get()
         )
         if folder:
             self.output_folder_var.set(folder)
