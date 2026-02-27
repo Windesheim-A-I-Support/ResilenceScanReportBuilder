@@ -2329,7 +2329,8 @@ TOP 10 MOST ENGAGED COMPANIES:
             output_filename = (
                 f"{date_str} {report_name} ({display_company} - {display_person}).pdf"
             )
-            output_file = REPORTS_DIR / output_filename
+            out_dir = Path(self.output_folder_var.get())
+            output_file = out_dir / output_filename
 
             # Check if already exists
             if output_file.exists():
@@ -2344,14 +2345,14 @@ TOP 10 MOST ENGAGED COMPANIES:
             # Build quarto command
             # --output must be a bare filename (no path separators) — Quarto
             # 1.6.x rejects any path component in --output.  Use --output-dir
-            # to redirect the PDF to the writable REPORTS_DIR.
+            # to redirect the PDF to the writable out_dir.
             # Use _DATA_ROOT for template path: quarto creates .quarto/ next to
             # the QMD and _internal/ (ROOT_DIR when frozen) is read-only under
             # Program Files.  _sync_template() copied the QMD there at startup.
             selected_template = _DATA_ROOT / self.template_var.get()
-            REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+            out_dir.mkdir(parents=True, exist_ok=True)
             temp_name = f"temp_{safe_company}_{safe_person}.pdf"
-            temp_path = REPORTS_DIR / temp_name
+            temp_path = out_dir / temp_name
             cmd = [
                 "quarto",
                 "render",
@@ -2369,7 +2370,7 @@ TOP 10 MOST ENGAGED COMPANIES:
                 "--output",
                 temp_name,
                 "--output-dir",
-                str(REPORTS_DIR),
+                str(out_dir),
             ]
 
             self.log_gen(
@@ -2584,6 +2585,7 @@ TOP 10 MOST ENGAGED COMPANIES:
     def generate_reports_thread(self):
         """Background thread for report generation"""
         self.log_gen("[START] Starting batch report generation...")
+        self.log_gen(f"[INFO] Output folder: {self.output_folder_var.get()}")
 
         # Pre-flight: verify R packages are available before wasting time on 519 renders
         r_pkg_err = _check_r_packages_ready()
@@ -2701,7 +2703,8 @@ TOP 10 MOST ENGAGED COMPANIES:
                     report_name = template_name
 
                 output_filename = f"{date_str} {report_name} ({display_company} - {display_person}).pdf"
-                output_file = REPORTS_DIR / output_filename
+                out_dir = Path(self.output_folder_var.get())
+                output_file = out_dir / output_filename
 
                 # Check if already exists
                 if output_file.exists():
@@ -2712,11 +2715,11 @@ TOP 10 MOST ENGAGED COMPANIES:
                 # Build quarto command using selected template with both company and person
                 # --output must be a bare filename (no path separators) — Quarto
                 # 1.6.x rejects any path component in --output.  Use --output-dir
-                # to redirect the PDF to the writable REPORTS_DIR.
+                # to redirect the PDF to the user-selected out_dir.
                 selected_template = _DATA_ROOT / self.template_var.get()
-                REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+                out_dir.mkdir(parents=True, exist_ok=True)
                 temp_name = f"temp_{safe_company}_{safe_person}.pdf"
-                temp_path = REPORTS_DIR / temp_name
+                temp_path = out_dir / temp_name
                 cmd = [
                     "quarto",
                     "render",
@@ -2734,7 +2737,7 @@ TOP 10 MOST ENGAGED COMPANIES:
                     "--output",
                     temp_name,
                     "--output-dir",
-                    str(REPORTS_DIR),
+                    str(out_dir),
                 ]
 
                 # Build subprocess environment — inject R_LIBS if frozen so
