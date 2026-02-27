@@ -44,6 +44,15 @@ trap {
 $R_VERSION_FALLBACK = "4.5.1"  # used if CRAN discovery fails
 $QUARTO_VERSION     = "1.6.39"
 
+# ---- Logging ----------------------------------------------------------------
+# Must be defined BEFORE any other code that calls Write-Log.
+function Write-Log {
+    param($msg)
+    $line = "[SETUP $(Get-Date -Format 'HH:mm:ss')] $msg"
+    Write-Host $line
+    Add-Content -Path $LOG_FILE -Value $line -Encoding UTF8
+}
+
 # Auto-discover current R version from CRAN so we always install the latest.
 # Falls back to $R_VERSION_FALLBACK if the network request fails.
 $R_VERSION = $R_VERSION_FALLBACK
@@ -82,14 +91,6 @@ $LATEX_PACKAGES = @(
     "setspace", "fancyhdr", "microtype", "lm", "needspace", "varwidth",
     "mdwtools", "xstring", "tools"
 )
-
-# ---- Logging ----------------------------------------------------------------
-function Write-Log {
-    param($msg)
-    $line = "[SETUP $(Get-Date -Format 'HH:mm:ss')] $msg"
-    Write-Host $line
-    Add-Content -Path $LOG_FILE -Value $line -Encoding UTF8
-}
 
 Write-Log "=== ResilienceScan dependency setup started (running as SYSTEM) ==="
 Write-Log "InstallDir : $InstallDir"

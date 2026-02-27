@@ -117,6 +117,48 @@ def test_ps1_ascii_only():
 
 
 # ---------------------------------------------------------------------------
+# setup_dependencies.ps1 — function ordering
+# ---------------------------------------------------------------------------
+
+
+def test_ps1_write_log_defined_before_first_use():
+    """Write-Log must be defined before any code that calls it.
+
+    PS5.1 executes scripts top-to-bottom; calling a function before its
+    'function' block is defined raises 'The term Write-Log is not recognized'.
+    This was the root cause of the v0.21.18 installer crash on line 58.
+    """
+    ps1 = (ROOT / "packaging" / "setup_dependencies.ps1").read_text(encoding="utf-8")
+    lines = ps1.splitlines()
+
+    def_line = None
+    first_call_line = None
+
+    for i, line in enumerate(lines, start=1):
+        stripped = line.strip()
+        if def_line is None and re.match(r"function\s+Write-Log\b", stripped):
+            def_line = i
+        if first_call_line is None and re.search(r"\bWrite-Log\b", stripped):
+            # Skip the function definition line itself and comment lines
+            if not re.match(
+                r"function\s+Write-Log\b", stripped
+            ) and not stripped.startswith("#"):
+                first_call_line = i
+
+    assert def_line is not None, (
+        "Write-Log function definition not found in setup_dependencies.ps1"
+    )
+    assert first_call_line is not None, (
+        "No Write-Log call found in setup_dependencies.ps1"
+    )
+    assert def_line < first_call_line, (
+        f"Write-Log is called on line {first_call_line} "
+        f"but not defined until line {def_line} — "
+        f"PS5.1 will crash with 'not recognized' error"
+    )
+
+
+# ---------------------------------------------------------------------------
 # launch_setup.ps1
 # ---------------------------------------------------------------------------
 
