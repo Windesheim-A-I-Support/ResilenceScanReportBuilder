@@ -1795,9 +1795,11 @@ TOP 10 MOST ENGAGED COMPANIES:
             stats_info += f"  {idx:2}. {company:<40} {count:>3} respondents\n"
 
         # Count existing reports
-        if REPORTS_DIR.exists():
-            reports = list(REPORTS_DIR.glob("*.pdf"))
+        _out_dir = Path(self.output_folder_var.get())
+        if _out_dir.exists():
+            reports = list(_out_dir.glob("*.pdf"))
             stats_info += f"\n\nREPORTS GENERATED:\n  Total PDF files:         {len(reports):>6}\n"
+            stats_info += f"  Output folder:           {_out_dir}\n"
 
         self.stats_text.insert("1.0", stats_info)
 
@@ -3370,9 +3372,10 @@ TOP 10 MOST ENGAGED COMPANIES:
             f"*ResilienceScanReport ({display_company} - {display_person}).pdf"
         )
         pattern_legacy = f"*ResilienceReport ({display_company} - {display_person}).pdf"
-        matches = glob.glob(str(REPORTS_DIR / pattern_new))
+        _out_dir = Path(self.output_folder_var.get())
+        matches = glob.glob(str(_out_dir / pattern_new))
         if not matches:
-            matches = glob.glob(str(REPORTS_DIR / pattern_legacy))
+            matches = glob.glob(str(_out_dir / pattern_legacy))
 
         attachment_info = ""
         if matches:
@@ -3427,13 +3430,14 @@ TOP 10 MOST ENGAGED COMPANIES:
         for item in self.email_status_tree.get_children():
             self.email_status_tree.delete(item)
 
-        # Scan /reports folder for PDF files
+        # Scan output folder for PDF files
         import glob
 
-        report_files = glob.glob(str(REPORTS_DIR / "*.pdf"))
+        _out_dir = Path(self.output_folder_var.get())
+        report_files = glob.glob(str(_out_dir / "*.pdf"))
 
         if not report_files:
-            self.log_email("[INFO] No PDF reports found in /reports folder")
+            self.log_email(f"[INFO] No PDF reports found in {_out_dir}")
             self.email_stats_label.config(
                 text="No PDF reports found - generate reports first"
             )
@@ -3648,11 +3652,12 @@ TOP 10 MOST ENGAGED COMPANIES:
             return  # STOP - don't proceed
 
         # CHECK 2: Any reports exist?
-        pdf_files = list(REPORTS_DIR.glob("*.pdf"))
+        _out_dir = Path(self.output_folder_var.get())
+        pdf_files = list(_out_dir.glob("*.pdf")) if _out_dir.exists() else []
         if len(pdf_files) == 0:
             messagebox.showerror(
                 "No Reports Found",
-                "No PDF reports found in reports/ folder.\n\n"
+                f"No PDF reports found in:\n{_out_dir}\n\n"
                 "Please generate reports first (Generation tab).",
             )
             return  # STOP - don't proceed
@@ -3754,13 +3759,14 @@ TOP 10 MOST ENGAGED COMPANIES:
     def _send_emails_impl(self):
         """Implementation of email sending - separated for COM initialization"""
 
-        # Scan /reports folder for PDF files (same as display logic)
+        # Scan output folder for PDF files (same as display logic)
         import glob
 
-        report_files = glob.glob(str(REPORTS_DIR / "*.pdf"))
+        _out_dir = Path(self.output_folder_var.get())
+        report_files = glob.glob(str(_out_dir / "*.pdf"))
 
         if not report_files:
-            self.log_email("[ERROR] No PDF reports found in /reports folder")
+            self.log_email(f"[ERROR] No PDF reports found in {_out_dir}")
 
             def finalize_empty():
                 self.is_sending_emails = False
@@ -3768,7 +3774,7 @@ TOP 10 MOST ENGAGED COMPANIES:
                 self.email_stop_btn.config(state=tk.DISABLED)
                 messagebox.showwarning(
                     "No Reports Found",
-                    "No PDF reports found in /reports folder.\n\n"
+                    f"No PDF reports found in:\n{_out_dir}\n\n"
                     "Please generate reports first, then try sending emails.",
                 )
 
@@ -4304,9 +4310,10 @@ TOP 10 MOST ENGAGED COMPANIES:
 
     def update_stats_display(self):
         """Update statistics in header"""
-        # Count actual reports in reports directory
-        if REPORTS_DIR.exists():
-            reports = list(REPORTS_DIR.glob("*.pdf"))
+        # Count actual reports in output directory
+        _out_dir = Path(self.output_folder_var.get())
+        if _out_dir.exists():
+            reports = list(_out_dir.glob("*.pdf"))
             self.stats["reports_generated"] = len(reports)
 
         self.stats_labels["respondents"].config(
