@@ -322,4 +322,31 @@ Background installer gave no feedback — users saw confusing "R NOT FOUND" erro
 
 ## Next milestones
 
-*Re-test v0.21.26 on Windows. Confirm: setup completion flag written, status bar updates, msg * notification fires.*
+### ✅ M21 — Fix email sending (v0.21.27)
+
+Three bugs caused emails to silently fail and stay "pending":
+
+**Bug 1 — Thread-unsafe Tkinter widget access (root cause of "nothing logged")**
+- `log()`, `log_email()`, `log_gen()` called `widget.insert()` directly from the background send thread.
+- Tkinter is single-threaded; this crashes the thread silently (especially on Linux).
+- Fix: all three now check `threading.current_thread()` and schedule widget updates via `root.after(0, ...)` when called from a non-main thread.
+
+**Bug 2 — Widget values read from background thread**
+- `_send_emails_impl()` called `self.smtp_server_var.get()`, `self.email_body_text.get()`, etc. from the background thread — not thread-safe.
+- Fix: `start_sending_emails()` captures a `send_config` dict from all widget vars on the main thread before launching the thread. `send_emails_thread(send_config)` and `_send_emails_impl(send_config)` use the dict.
+
+**Bug 3 — No `except` in `send_emails_thread`**
+- Any exception in `_send_emails_impl()` killed the thread silently: `is_sending_emails` stayed `True`, send button stayed disabled, no dialog shown.
+- Fix: added `except Exception as exc:` that logs the full traceback to the email log, shows an error dialog, and resets the send button.
+
+**Bug 4 — Status display ignored `email_tracker`**
+- `update_email_status_display()` only checked the CSV `reportsent` column — never the tracker. Test-mode sends update the tracker but not the CSV, so status always showed "pending".
+- Fix: display now checks `email_tracker._recipients` first; falls back to CSV only if no tracker entry. Stats label now also shows "Failed" count.
+
+**Gate:** ✅ 122 tests pass; ruff clean.
+
+---
+
+## Next milestones
+
+*Re-test email sending on Windows — confirm emails send, log shows progress, status updates to sent/failed.*

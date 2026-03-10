@@ -3537,17 +3537,23 @@ TOP 10 MOST ENGAGED COMPANIES:
                         if not matches.empty:
                             email = matches.iloc[0].get("email_address", "")
 
-                    # Check if already sent (from CSV reportsent column)
-                    sent_status = "pending"
-                    if self.df is not None:
-                        matches = self.df[
-                            (self.df["company_name"].str.strip() == company.strip())
-                            & (self.df["name"].str.strip() == person.strip())
-                        ]
-                        if not matches.empty and "reportsent" in self.df.columns:
-                            is_sent = matches.iloc[0].get("reportsent", False)
-                            if is_sent:
-                                sent_status = "sent"
+                    # Check status: prefer email_tracker (updated by send thread,
+                    # reflects test-mode sends) then fall back to CSV reportsent.
+                    tracker_key = f"{company.strip()}|{person.strip()}"
+                    tracker_entry = self.email_tracker._recipients.get(tracker_key)
+                    if tracker_entry:
+                        sent_status = tracker_entry["status"]  # pending/sent/failed
+                    else:
+                        sent_status = "pending"
+                        if self.df is not None:
+                            matches = self.df[
+                                (self.df["company_name"].str.strip() == company.strip())
+                                & (self.df["name"].str.strip() == person.strip())
+                            ]
+                            if not matches.empty and "reportsent" in self.df.columns:
+                                is_sent = matches.iloc[0].get("reportsent", False)
+                                if is_sent:
+                                    sent_status = "sent"
 
                     reports_ready.append(
                         {
@@ -3566,9 +3572,10 @@ TOP 10 MOST ENGAGED COMPANIES:
         total = len(reports_ready)
         pending = sum(1 for r in reports_ready if r["status"] == "pending")
         sent = sum(1 for r in reports_ready if r["status"] == "sent")
+        failed = sum(1 for r in reports_ready if r["status"] == "failed")
 
         self.email_stats_label.config(
-            text=f"Reports Ready: {total} | Pending: {pending} | Sent: {sent}"
+            text=f"Reports Ready: {total} | Pending: {pending} | Sent: {sent} | Failed: {failed}"
         )
 
         # Get filter value
@@ -3778,49 +3785,85 @@ TOP 10 MOST ENGAGED COMPANIES:
         self.email_start_btn.config(state=tk.DISABLED)
         self.email_stop_btn.config(state=tk.NORMAL)
 
+        # Capture all widget values on the main thread before the background
+        # thread starts — Tkinter widgets are not thread-safe.
+        send_config = {
+            "smtp_server": self.smtp_server_var.get(),
+            "smtp_port": int(self.smtp_port_var.get() or 587),
+            "smtp_username": self.smtp_username_var.get(),
+            "smtp_password": self.smtp_password_var.get(),
+            "smtp_from": self.smtp_from_var.get(),
+            "out_dir": Path(self.output_folder_var.get()),
+            "test_mode": self.test_mode_var.get(),
+            "test_email": self.test_email_var.get().strip(),
+            "subject_template": self.email_subject_var.get(),
+            "body_template": self.email_body_text.get("1.0", tk.END).strip(),
+        }
+
         # Start email sending in background thread
-        thread = threading.Thread(target=self.send_emails_thread, daemon=True)
+        thread = threading.Thread(
+            target=self.send_emails_thread, args=(send_config,), daemon=True
+        )
         thread.start()
 
-    def send_emails_thread(self):
+    def send_emails_thread(self, send_config):
         """Background thread for sending emails - works directly from PDF reports"""
         # Initialize COM for this thread (Windows only — no-op on Linux/macOS)
+        _com_initialized = False
         try:
             import pythoncom
 
             pythoncom.CoInitialize()
             _com_initialized = True
         except ImportError:
-            _com_initialized = False
+            pass
 
         try:
             self.log_email("[START] Starting email distribution...")
 
             # Log test mode status at the start
-            if self.test_mode_var.get():
-                test_email = self.test_email_var.get().strip()
+            if send_config["test_mode"]:
                 self.log_email(
-                    f"[TEST] TEST MODE ENABLED - All emails will be sent to: {test_email}"
+                    f"[TEST] TEST MODE ENABLED - All emails will be sent to: {send_config['test_email']}"
                 )
             else:
                 self.log_email(
                     "[LIVE] LIVE MODE - Emails will be sent to actual recipients"
                 )
 
-            self._send_emails_impl()
+            self._send_emails_impl(send_config)
+
+        except Exception as exc:
+            import traceback
+
+            self.log_email(f"[ERROR] Unexpected error in email thread: {exc}")
+            self.log_email(f"  {traceback.format_exc()}")
+
+            def _finalize_error():
+                self.is_sending_emails = False
+                self.email_start_btn.config(state=tk.NORMAL)
+                self.email_stop_btn.config(state=tk.DISABLED)
+                messagebox.showerror(
+                    "Email Error",
+                    f"An unexpected error stopped the email thread:\n\n{exc}\n\n"
+                    "Check the Email Log tab for the full traceback.",
+                )
+
+            self.root.after(0, _finalize_error)
+
         finally:
             if _com_initialized:
                 import pythoncom
 
                 pythoncom.CoUninitialize()
 
-    def _send_emails_impl(self):
+    def _send_emails_impl(self, send_config):
         """Implementation of email sending - separated for COM initialization"""
 
         # Scan output folder for PDF files (same as display logic)
         import glob
 
-        _out_dir = Path(self.output_folder_var.get())
+        _out_dir = send_config["out_dir"]
         report_files = glob.glob(str(_out_dir / "*.pdf"))
 
         if not report_files:
@@ -3918,23 +3961,20 @@ TOP 10 MOST ENGAGED COMPANIES:
         sent_count = 0
         failed_count = 0
 
-        # Initialize SMTP connection
-        smtp_server = self.smtp_server_var.get()
-        smtp_port = int(self.smtp_port_var.get())
-        smtp_username = self.smtp_username_var.get()
-        smtp_password = self.smtp_password_var.get()
-        smtp_from = self.smtp_from_var.get()
+        # Read send config (all values captured on main thread before this thread started)
+        smtp_server = send_config["smtp_server"]
+        smtp_port = send_config["smtp_port"]
+        smtp_username = send_config["smtp_username"]
+        smtp_password = send_config["smtp_password"]
+        smtp_from = send_config["smtp_from"]
+        subject_template = send_config["subject_template"]
+        body_template = send_config["body_template"]
+        test_mode = send_config["test_mode"]
+        test_email = send_config["test_email"] if test_mode else None
 
         self.log_email(f"[SMTP] Connecting to SMTP server: {smtp_server}:{smtp_port}")
 
         # Note: SMTP connection will be created per-email to avoid timeout issues
-
-        # Get email template
-        subject_template = self.email_subject_var.get()
-        body_template = self.email_body_text.get("1.0", tk.END).strip()
-
-        test_mode = self.test_mode_var.get()
-        test_email = self.test_email_var.get().strip() if test_mode else None
 
         for idx, record in enumerate(pending_records):
             if not self.is_sending_emails:
@@ -4289,36 +4329,60 @@ TOP 10 MOST ENGAGED COMPANIES:
     # ==================== Logging Methods ====================
 
     def log(self, message):
-        """Log to system log"""
+        """Log to system log — thread-safe."""
+        import threading
+
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         log_message = f"[{timestamp}] {message}\n"
 
-        self.system_log.insert(tk.END, log_message)
-        self.system_log.see(tk.END)
-
-        # Write to file
+        # Write to file immediately (thread-safe)
         try:
             with open(LOG_FILE, "a") as f:
                 f.write(log_message)
         except:
             pass
 
+        def _update():
+            self.system_log.insert(tk.END, log_message)
+            self.system_log.see(tk.END)
+
+        if threading.current_thread() is threading.main_thread():
+            _update()
+        else:
+            self.root.after(0, _update)
+
     def log_gen(self, message):
-        """Log to generation log"""
+        """Log to generation log — thread-safe."""
+        import threading
+
         timestamp = datetime.now().strftime("%H:%M:%S")
         log_message = f"[{timestamp}] {message}\n"
 
-        self.gen_log.insert(tk.END, log_message)
-        self.gen_log.see(tk.END)
+        def _update():
+            self.gen_log.insert(tk.END, log_message)
+            self.gen_log.see(tk.END)
+
+        if threading.current_thread() is threading.main_thread():
+            _update()
+        else:
+            self.root.after(0, _update)
         self.log(message)
 
     def log_email(self, message):
-        """Log to email log"""
+        """Log to email log — thread-safe."""
+        import threading
+
         timestamp = datetime.now().strftime("%H:%M:%S")
         log_message = f"[{timestamp}] {message}\n"
 
-        self.email_log.insert(tk.END, log_message)
-        self.email_log.see(tk.END)
+        def _update():
+            self.email_log.insert(tk.END, log_message)
+            self.email_log.see(tk.END)
+
+        if threading.current_thread() is threading.main_thread():
+            _update()
+        else:
+            self.root.after(0, _update)
         self.log(message)
 
     def refresh_logs(self):
