@@ -50,11 +50,23 @@ _on_exit() {
 trap _on_exit EXIT
 
 # -- R ------------------------------------------------------------------------
-if ! command -v Rscript &>/dev/null; then
-    log "Installing R from CRAN APT repository..."
+# Minimum required R major.minor (binary packages exist from this version).
+R_MIN_MAJOR=4
+R_MIN_MINOR=4
+
+_r_version_ok() {
+    # Returns 0 (true) if installed R meets R_MIN_MAJOR.R_MIN_MINOR, else 1.
+    local ver major minor
+    ver=$(Rscript --version 2>&1 | grep -oP '\d+\.\d+\.\d+' | head -1 || echo "0.0.0")
+    major=$(echo "$ver" | cut -d. -f1)
+    minor=$(echo "$ver" | cut -d. -f2)
+    [ "$major" -gt "$R_MIN_MAJOR" ] || \
+        ([ "$major" -eq "$R_MIN_MAJOR" ] && [ "$minor" -ge "$R_MIN_MINOR" ])
+}
+
+_install_r_cran() {
     apt-get update -qq
     apt-get install -y --no-install-recommends software-properties-common dirmngr
-    # Add CRAN signing key and repository
     wget -qO- https://cloud.r-project.org/bin/linux/ubuntu/marutter_pubkey.asc \
         | gpg --dearmor -o /usr/share/keyrings/cran.gpg
     UBUNTU_CODENAME=$(. /etc/os-release && echo "$UBUNTU_CODENAME")
@@ -62,8 +74,21 @@ if ! command -v Rscript &>/dev/null; then
         > /etc/apt/sources.list.d/cran.list
     apt-get update -qq
     apt-get install -y --no-install-recommends r-base r-base-dev
+}
+
+R_UPGRADED=false
+if ! command -v Rscript &>/dev/null; then
+    log "R not found - installing from CRAN..."
+    _install_r_cran
+    R_UPGRADED=true
+elif ! _r_version_ok; then
+    INSTALLED_R=$(Rscript --version 2>&1 | grep -oP '\d+\.\d+\.\d+' | head -1 || echo "unknown")
+    log "R $INSTALLED_R found but older than required ${R_MIN_MAJOR}.${R_MIN_MINOR} - upgrading..."
+    _install_r_cran
+    R_UPGRADED=true
 else
-    log "R already present -- skipping."
+    INSTALLED_R=$(Rscript --version 2>&1 | grep -oP '\d+\.\d+\.\d+' | head -1 || echo "unknown")
+    log "R $INSTALLED_R already meets requirements (>= ${R_MIN_MAJOR}.${R_MIN_MINOR}) - skipping install."
 fi
 
 # -- System libraries required by R packages -----------------------------------
@@ -123,7 +148,27 @@ fi
 
 # -- R packages ---------------------------------------------------------------
 log "Installing R packages into $R_LIB..."
+
+# If R was upgraded, wipe the old r-library - binary packages are compiled for
+# a specific R minor version and will not load under a different version.
+if [ "$R_UPGRADED" = "true" ] && [ -d "$R_LIB" ]; then
+    log "R was upgraded - removing stale r-library to force clean package install: $R_LIB"
+    rm -rf "$R_LIB"
+fi
+
 mkdir -p "$R_LIB"
+
+# Ensure the r-library is writable before attempting package installation.
+if ! touch "$R_LIB/_write_test_" 2>/dev/null; then
+    log "WARNING: R library not writable - attempting to fix permissions..."
+    chmod -R u+w "$R_LIB" 2>/dev/null || true
+    chown -R root:root "$R_LIB" 2>/dev/null || true
+    if ! touch "$R_LIB/_write_test_" 2>/dev/null; then
+        log "ERROR: R library still not writable after chmod/chown. Package install will fail."
+        log "  Path: $R_LIB"
+    fi
+fi
+rm -f "$R_LIB/_write_test_"
 
 NCPUS=$(nproc 2>/dev/null || echo 2)
 R_PKGS="'readr','dplyr','stringr','tidyr','ggplot2','knitr','fmsb','scales','viridis','patchwork','RColorBrewer','gridExtra','png','lubridate','kableExtra','rmarkdown','jsonlite','ggrepel','cowplot'"

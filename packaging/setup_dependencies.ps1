@@ -133,15 +133,23 @@ $rscriptBefore    = Find-Rscript
 $installedVersion = Get-InstalledRVersion $rscriptBefore
 $requiredVersion  = [version]$R_VERSION
 
-$needInstall = $false
+$needInstall  = $false
+$rWasUpgraded = $false
+
 if (-not $rscriptBefore) {
-    Write-Log "R not found - installing $R_VERSION..."
+    Write-Log "R not found - will install $R_VERSION."
     $needInstall = $true
-} elseif ($installedVersion -and ($installedVersion -lt $requiredVersion)) {
-    Write-Log "R $installedVersion found but < $R_VERSION - upgrading to latest..."
-    $needInstall = $true
+} elseif (-not $installedVersion) {
+    # Version string could not be parsed - treat as unknown/incompatible and reinstall.
+    Write-Log "R found at $rscriptBefore but version could not be determined - reinstalling $R_VERSION to be safe."
+    $needInstall  = $true
+    $rWasUpgraded = $true
+} elseif ($installedVersion -lt $requiredVersion) {
+    Write-Log "R $installedVersion found but older than required $R_VERSION - upgrading..."
+    $needInstall  = $true
+    $rWasUpgraded = $true
 } else {
-    Write-Log "R $installedVersion already present and up to date - skipping install."
+    Write-Log "R $installedVersion already meets requirement ($R_VERSION) - skipping install."
 }
 
 if ($needInstall) {
@@ -399,9 +407,43 @@ if ($tlmgr) {
 $rscript = Find-Rscript
 if ($rscript) {
     Write-Log "Installing R packages into $R_LIB (using $rscript)..."
+
+    # If R was upgraded (or reinstalled), wipe the old r-library first.
+    # Binary packages are compiled for a specific R minor version and will not
+    # load under a different version - a clean install is required.
+    if ($rWasUpgraded -and (Test-Path $R_LIB)) {
+        Write-Log "R was upgraded - removing stale r-library to force clean package install: $R_LIB"
+        Remove-Item -Recurse -Force $R_LIB -ErrorAction SilentlyContinue
+        Write-Log "Stale r-library removed."
+    }
+
     New-Item -ItemType Directory -Force -Path $R_LIB | Out-Null
-    # Grant Users read access to the R library so the app can load packages
-    icacls $R_LIB /grant "BUILTIN\Users:(OI)(CI)RX" /T /Q 2>&1 | Out-Null
+
+    # Grant full control to SYSTEM + Administrators (install) and
+    # read+execute to all Users (runtime).  Run even if the directory already
+    # existed so that a previous bad-permission state is always corrected.
+    icacls $R_LIB /grant "SYSTEM:(OI)(CI)F"                /T /Q 2>&1 | Out-Null
+    icacls $R_LIB /grant "BUILTIN\Administrators:(OI)(CI)F" /T /Q 2>&1 | Out-Null
+    icacls $R_LIB /grant "BUILTIN\Users:(OI)(CI)RX"         /T /Q 2>&1 | Out-Null
+
+    # Verify the directory is actually writable before attempting install.
+    $testFile    = Join-Path $R_LIB "_write_test_"
+    $libWritable = $false
+    try {
+        "test" | Set-Content $testFile -Encoding UTF8 -ErrorAction Stop
+        Remove-Item $testFile -Force -ErrorAction SilentlyContinue
+        $libWritable = $true
+        Write-Log "R library writable: $R_LIB"
+    } catch {
+        Write-Log "ERROR: R library is not writable after ACL fix - package installation cannot proceed."
+        Write-Log "  Path : $R_LIB"
+        Write-Log "  Error: $($_.Exception.Message)"
+        Add-Content -Path $ERROR_LOG -Value "[R library] Not writable: $R_LIB -- $($_.Exception.Message)" -Encoding UTF8
+    }
+
+    if (-not $libWritable) {
+        Write-Log "Skipping package installation because r-library is not writable."
+    } else {
     $pkgList = ($R_PACKAGES | ForEach-Object { "'" + $_ + "'" }) -join ", "
     # R requires forward slashes in paths - backslashes in Windows paths cause
     # "unrecognized escape" errors (e.g. \P in \Program Files is not a valid escape).
@@ -449,6 +491,7 @@ if ($rscript) {
         Add-Content -Path $ERROR_LOG -Value "[R packages] $errMsg" -Encoding UTF8
         Add-Content -Path $ERROR_LOG -Value $errStk                -Encoding UTF8
     }
+    } # end if $libWritable
 } else {
     Write-Log "WARNING: Rscript not found - R packages not installed."
 }
