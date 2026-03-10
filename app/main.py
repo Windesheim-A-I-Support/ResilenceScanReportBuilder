@@ -234,6 +234,8 @@ class ResilienceScanGUI:
         self.is_generating = False
         self.is_sending_emails = False
         self._gen_proc = None  # running quarto subprocess (for cancel/kill)
+        self._gen_proc_lock = threading.Lock()  # guards _gen_proc across threads
+        self._stop_gen = threading.Event()  # set() to request cancellation
 
         # Email tracking system
         self.email_tracker = EmailTracker()
@@ -381,13 +383,6 @@ class ResilienceScanGUI:
             command=self.start_email_all,
             width=20,
         ).grid(row=0, column=2, padx=5, pady=5)
-
-        ttk.Button(
-            actions_frame,
-            text="📈 Generate Executive Dashboard",
-            command=self.generate_executive_dashboard,
-            width=20,
-        ).grid(row=0, column=3, padx=5, pady=5)
 
         ttk.Button(
             actions_frame,
@@ -1596,8 +1591,8 @@ class ResilienceScanGUI:
         from pathlib import Path
         import json
 
-        report_path = Path("./data/cleaning_report.txt")
-        log_path = Path("./data/cleaning_validation_log.json")
+        report_path = _DATA_ROOT / "data" / "cleaning_report.txt"
+        log_path = _DATA_ROOT / "data" / "cleaning_validation_log.json"
 
         if not report_path.exists():
             messagebox.showwarning(
@@ -2597,6 +2592,7 @@ TOP 10 MOST ENGAGED COMPANIES:
             return
 
         self.is_generating = True
+        self._stop_gen.clear()
         self.gen_start_btn.config(state=tk.DISABLED)
         self.gen_cancel_btn.config(state=tk.NORMAL)
 
@@ -2707,29 +2703,26 @@ TOP 10 MOST ENGAGED COMPANIES:
         failed = 0
         skipped = 0
 
-        self.gen_progress["maximum"] = total
-        self.gen_progress["value"] = 0
+        self.root.after(0, lambda: self.gen_progress.config(maximum=total, value=0))
 
         for idx, row in self.df.iterrows():
             try:
-                if not self.is_generating:
+                if self._stop_gen.is_set():
                     self.log_gen("Generation cancelled by user")
                     break
 
                 company = row.get("company_name", "Unknown")
                 person = row.get("name", "Unknown")
 
-                # Handle potential encoding issues in GUI labels
                 try:
                     display_text = f"Generating: {company} - {person}"
-                    self.gen_current_label.config(text=display_text)
                 except (UnicodeDecodeError, UnicodeEncodeError):
-                    # Fallback to safe ASCII if encoding fails
-                    safe_company = company.encode("ascii", "replace").decode("ascii")
-                    safe_person = person.encode("ascii", "replace").decode("ascii")
-                    self.gen_current_label.config(
-                        text=f"Generating: {safe_company} - {safe_person}"
+                    display_text = "Generating: {safe} - {safe}".format(
+                        safe=company.encode("ascii", "replace").decode("ascii")
                     )
+                self.root.after(
+                    0, lambda t=display_text: self.gen_current_label.config(text=t)
+                )
                 # Pre-generation validation: Check if record has sufficient data
                 validation_result = self.validate_record_for_report(row)
 
@@ -2836,7 +2829,7 @@ TOP 10 MOST ENGAGED COMPANIES:
 
                 # Execute quarto render — cwd=_DATA_ROOT so quarto writes
                 # .quarto/ there (writable) and R finds data/ correctly.
-                self._gen_proc = subprocess.Popen(
+                proc = subprocess.Popen(
                     cmd,
                     cwd=str(_DATA_ROOT),
                     stdout=subprocess.PIPE,
@@ -2844,32 +2837,35 @@ TOP 10 MOST ENGAGED COMPANIES:
                     text=True,
                     env=gen_env,
                 )
+                with self._gen_proc_lock:
+                    self._gen_proc = proc
+
                 stdout_lines = []
-                for line in self._gen_proc.stdout:
+                for line in proc.stdout:
                     line = line.rstrip()
                     if line:
                         self.log_gen(f"    {line}")
                         stdout_lines.append(line)
                     # Check for cancel between lines
-                    if not self.is_generating:
-                        proc = self._gen_proc
-                        if proc is not None:
-                            try:
-                                proc.kill()
-                                proc.wait()
-                            except Exception:
-                                pass
+                    if self._stop_gen.is_set():
+                        try:
+                            proc.kill()
+                            proc.wait()
+                        except (OSError, AttributeError):
+                            pass
                         if temp_path.exists():
                             temp_path.unlink()
-                        self._gen_proc = None
+                        with self._gen_proc_lock:
+                            self._gen_proc = None
                         break
                 else:
-                    self._gen_proc.wait()
-                returncode = self._gen_proc.returncode if self._gen_proc else -1
-                self._gen_proc = None
+                    proc.wait()
+                returncode = proc.returncode
+                with self._gen_proc_lock:
+                    self._gen_proc = None
 
                 # If cancelled mid-render, break outer loop
-                if not self.is_generating:
+                if self._stop_gen.is_set():
                     self.log_gen("Generation cancelled by user")
                     break
 
@@ -2934,40 +2930,37 @@ TOP 10 MOST ENGAGED COMPANIES:
                     )
                     failed += 1
 
-            except FileNotFoundError as e:
+            except FileNotFoundError:
                 failed += 1
                 self.log_gen(
-                    f"  [ERROR] Error: Quarto not found - please install from https://quarto.org"
+                    "  [ERROR] Error: Quarto not found - please install from https://quarto.org"
                 )
             except subprocess.TimeoutExpired:
                 failed += 1
-                self.log_gen(f"  [ERROR] Error: Generation timeout (>5 minutes)")
+                self.log_gen("  [ERROR] Error: Generation timeout (>5 minutes)")
             except Exception as e:
                 failed += 1
                 self.log_gen(f"  [ERROR] Error: {e}")
 
-                self.gen_progress["value"] = idx + 1
-                self.gen_progress_label.config(
-                    text=f"Progress: {idx + 1}/{total} | Success: {success} | Failed: {failed} | Skipped: {skipped}"
-                )
+            # Update progress bar (thread-safe)
+            _s, _f, _sk, _i, _t = success, failed, skipped, idx + 1, total
+            self.root.after(
+                0,
+                lambda v=_i, s=_s, f=_f, sk=_sk, t=_t: (
+                    self.gen_progress.config(value=v),
+                    self.gen_progress_label.config(
+                        text=f"Progress: {v}/{t} | Success: {s} | Failed: {f} | Skipped: {sk}"
+                    ),
+                ),
+            )
 
-            except Exception as e:
-                # Catch-all for ANY exception in loop (including encoding errors, etc)
-                failed += 1
-                self.log_gen(f"[{idx + 1}/{total}] CRITICAL ERROR: {e}")
-                self.log_gen(
-                    f"     Company: {row.get('company_name', 'Unknown')}, Person: {row.get('name', 'Unknown')}"
-                )
-                # Continue processing next record despite error
-                self.gen_progress["value"] = idx + 1
-                self.gen_progress_label.config(
-                    text=f"Progress: {idx + 1}/{total} | Success: {success} | Failed: {failed} | Skipped: {skipped}"
-                )
+        def _finish_ui():
+            self.is_generating = False
+            self.gen_start_btn.config(state=tk.NORMAL)
+            self.gen_cancel_btn.config(state=tk.DISABLED)
+            self.gen_current_label.config(text="Generation complete")
 
-        self.is_generating = False
-        self.gen_start_btn.config(state=tk.NORMAL)
-        self.gen_cancel_btn.config(state=tk.DISABLED)
-        self.gen_current_label.config(text="Generation complete")
+        self.root.after(0, _finish_ui)
 
         # Comprehensive summary
         self.log_gen(f"\n" + "=" * 60)
@@ -3009,14 +3002,15 @@ TOP 10 MOST ENGAGED COMPANIES:
     def cancel_generation(self):
         """Cancel generation and kill any running quarto subprocess."""
         if messagebox.askyesno("Confirm", "Cancel report generation?"):
-            self.is_generating = False
-            if self._gen_proc is not None:
+            self._stop_gen.set()  # signals the generation thread to stop
+            with self._gen_proc_lock:
+                proc = self._gen_proc
+            if proc is not None:
                 try:
-                    self._gen_proc.kill()
-                    self._gen_proc.wait()
-                except Exception:
+                    proc.kill()
+                    proc.wait()
+                except (OSError, AttributeError):
                     pass
-                self._gen_proc = None
 
     def browse_output_folder(self):
         """Browse for output folder"""
@@ -3025,33 +3019,6 @@ TOP 10 MOST ENGAGED COMPANIES:
         )
         if folder:
             self.output_folder_var.set(folder)
-
-    def generate_executive_dashboard(self):
-        """Generate executive dashboard PDF"""
-        self.log("Generating Executive Dashboard...")
-        self.status_label.config(text="Generating Executive Dashboard...")
-
-        try:
-            cmd = ["quarto", "render", "ExecutiveDashboard.qmd", "--to", "pdf"]
-            result = subprocess.run(cmd, cwd=ROOT_DIR, capture_output=True, text=True)
-
-            if result.returncode == 0:
-                self.log("[OK] Executive Dashboard generated successfully")
-                messagebox.showinfo(
-                    "Success",
-                    "Executive Dashboard generated!\n\nSaved as: ExecutiveDashboard.pdf",
-                )
-            else:
-                self.log(f"[ERROR] Error generating dashboard: {result.stderr}")
-                messagebox.showerror(
-                    "Error", f"Failed to generate dashboard:\n{result.stderr}"
-                )
-
-        except Exception as e:
-            self.log(f"[ERROR] Error: {e}")
-            messagebox.showerror("Error", f"Failed to generate dashboard:\n{e}")
-        finally:
-            self.status_label.config(text="Ready")
 
     def run_system_check(self):
         """Run system check and display results"""
