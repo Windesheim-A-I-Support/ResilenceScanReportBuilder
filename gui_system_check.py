@@ -364,29 +364,27 @@ class SystemChecker:
             return {"ok": False, "version": None}
 
         pkg_list = ", ".join(f'"{p}"' for p in _R_PACKAGES)
-        script = (
-            f"pkgs <- c({pkg_list}); "
-            "missing <- pkgs[!pkgs %in% rownames(installed.packages())];"
-            "if (length(missing) == 0) cat('OK') "
-            "else cat('MISSING:', paste(missing, collapse=', '))"
-        )
 
         # Pass the bundled R library path (installed by the setup script) so
-        # installed.packages() finds packages even if R_LIBS is not set.
-        run_env = None
+        # requireNamespace() finds packages even if R_LIBS is not set.
         r_lib = _r_lib_path()
-        if r_lib:
-            run_env = os.environ.copy()
-            existing = run_env.get("R_LIBS", "")
-            run_env["R_LIBS"] = f"{r_lib};{existing}" if existing else str(r_lib)
+        lib_expr = f'"{r_lib}"' if r_lib else "NULL"
+        script = (
+            f"lib <- {lib_expr}; "
+            "if (!is.null(lib)) .libPaths(c(lib, .libPaths())); "
+            f"pkgs <- c({pkg_list}); "
+            "bad <- pkgs[!sapply(pkgs, requireNamespace, quietly=TRUE)]; "
+            "if (length(bad) == 0) cat('OK') "
+            "else cat('MISSING:', paste(bad, collapse=', '))"
+        )
 
-        _, out = _run([rscript, "-e", script], env=run_env)
+        _, out = _run([rscript, "-e", script])
         ok = out.strip() == "OK"
         if ok:
             return self._record(
                 "[OK] R packages",
                 ok=True,
-                status=f"All {len(_R_PACKAGES)} required packages installed",
+                status=f"All {len(_R_PACKAGES)} required packages installed and loadable",
             )
         missing = out.replace("MISSING:", "").strip()
         return self._record(

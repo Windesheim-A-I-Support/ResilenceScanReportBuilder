@@ -178,34 +178,37 @@ Rscript -e "
   install.packages(pkgs, lib='$R_LIB', repos='https://cloud.r-project.org', Ncpus=${NCPUS}, quiet=FALSE)
 "
 
-# Verify all packages installed -- install.packages does not exit non-zero on
-# partial failure, so check explicitly and retry any that are missing.
-log "Verifying R packages..."
+# Verify all packages installed and loadable -- install.packages does not exit
+# non-zero on partial failure, so check explicitly via requireNamespace() and
+# retry any that fail (catches broken installs, missing system libs, etc.).
+log "Verifying R packages (installed and loadable)..."
 MISSING=$(Rscript --no-save -e "
+  .libPaths(c('$R_LIB', .libPaths()))
   pkgs <- c($R_PKGS)
-  miss <- pkgs[!pkgs %in% rownames(installed.packages(lib.loc='$R_LIB'))]
-  cat(paste(miss, collapse=' '))
+  bad <- pkgs[!sapply(pkgs, requireNamespace, quietly=TRUE)]
+  cat(paste(bad, collapse=' '))
 " 2>/dev/null || true)
 
 if [ -n "$MISSING" ]; then
-    log "Retrying missing packages: $MISSING"
+    log "Retrying packages that failed to load: $MISSING"
     for pkg in $MISSING; do
         Rscript -e "install.packages('$pkg', lib='$R_LIB', repos='https://cloud.r-project.org')" || true
     done
     # Final check after retry
     STILL_MISSING=$(Rscript --no-save -e "
+      .libPaths(c('$R_LIB', .libPaths()))
       pkgs <- c($R_PKGS)
-      miss <- pkgs[!pkgs %in% rownames(installed.packages(lib.loc='$R_LIB'))]
-      cat(paste(miss, collapse=' '))
+      bad <- pkgs[!sapply(pkgs, requireNamespace, quietly=TRUE)]
+      cat(paste(bad, collapse=' '))
     " 2>/dev/null || true)
     if [ -n "$STILL_MISSING" ]; then
-        log "ERROR: R packages still missing after retry: $STILL_MISSING"
+        log "ERROR: R packages still not loadable after retry: $STILL_MISSING"
         SETUP_RESULT="FAIL"
     else
-        log "R package retry succeeded -- all packages present."
+        log "R package retry succeeded -- all packages installed and loadable."
     fi
 else
-    log "R package verification: all packages present."
+    log "R package verification: all packages installed and loadable."
 fi
 
 # Ensure the R library is readable by all users

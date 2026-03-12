@@ -417,14 +417,27 @@ if ($rscript) {
         Write-Log "Stale r-library removed."
     }
 
-    New-Item -ItemType Directory -Force -Path $R_LIB | Out-Null
+    # Create the library directory; log result so failures are visible.
+    try {
+        New-Item -ItemType Directory -Force -Path $R_LIB -ErrorAction Stop | Out-Null
+        Write-Log "R library directory ready: $R_LIB"
+    } catch {
+        Write-Log "ERROR: Could not create R library directory: $R_LIB -- $($_.Exception.Message)"
+        Add-Content -Path $ERROR_LOG -Value "[R library] mkdir failed: $($_.Exception.Message)" -Encoding UTF8
+    }
 
-    # Grant full control to SYSTEM + Administrators (install) and
-    # read+execute to all Users (runtime).  Run even if the directory already
-    # existed so that a previous bad-permission state is always corrected.
-    icacls $R_LIB /grant "SYSTEM:(OI)(CI)F"                /T /Q 2>&1 | Out-Null
-    icacls $R_LIB /grant "BUILTIN\Administrators:(OI)(CI)F" /T /Q 2>&1 | Out-Null
-    icacls $R_LIB /grant "BUILTIN\Users:(OI)(CI)RX"         /T /Q 2>&1 | Out-Null
+    # Fix permissions so SYSTEM (installer) can write and Users can read at runtime.
+    # On upgrades the existing r-library may have stale ownership or inherited DENY
+    # rules from Program Files -- break inheritance first, then replace grant entries.
+    Write-Log "Setting ACLs on R library..."
+    $o1 = (icacls "$R_LIB" /inheritance:r /Q 2>&1) -join " "
+    Write-Log "  [icacls /inheritance:r] exit=$LASTEXITCODE  $o1"
+    $o2 = (icacls "$R_LIB" /grant:r "SYSTEM:(OI)(CI)F" /T /Q 2>&1) -join " "
+    Write-Log "  [icacls SYSTEM:F      ] exit=$LASTEXITCODE  $o2"
+    $o3 = (icacls "$R_LIB" /grant:r "BUILTIN\Administrators:(OI)(CI)F" /T /Q 2>&1) -join " "
+    Write-Log "  [icacls Admins:F      ] exit=$LASTEXITCODE  $o3"
+    $o4 = (icacls "$R_LIB" /grant:r "BUILTIN\Users:(OI)(CI)RX" /T /Q 2>&1) -join " "
+    Write-Log "  [icacls Users:RX      ] exit=$LASTEXITCODE  $o4"
 
     # Verify the directory is actually writable before attempting install.
     $testFile    = Join-Path $R_LIB "_write_test_"
@@ -435,10 +448,24 @@ if ($rscript) {
         $libWritable = $true
         Write-Log "R library writable: $R_LIB"
     } catch {
-        Write-Log "ERROR: R library is not writable after ACL fix - package installation cannot proceed."
-        Write-Log "  Path : $R_LIB"
+        Write-Log "WARNING: R library not writable after ACL fix - attempting takeown fallback..."
         Write-Log "  Error: $($_.Exception.Message)"
-        Add-Content -Path $ERROR_LOG -Value "[R library] Not writable: $R_LIB -- $($_.Exception.Message)" -Encoding UTF8
+        # Fallback: take ownership and retry ACL grant
+        $takeown = (& takeown /F "$R_LIB" /R /D Y 2>&1) -join " "
+        Write-Log "  [takeown] $takeown"
+        $grant   = (icacls "$R_LIB" /grant:r "SYSTEM:(OI)(CI)F" /T /Q 2>&1) -join " "
+        Write-Log "  [icacls retry] $grant"
+        try {
+            "test" | Set-Content $testFile -Encoding UTF8 -ErrorAction Stop
+            Remove-Item $testFile -Force -ErrorAction SilentlyContinue
+            $libWritable = $true
+            Write-Log "R library writable after takeown fallback."
+        } catch {
+            Write-Log "ERROR: R library is still not writable - package installation cannot proceed."
+            Write-Log "  Path : $R_LIB"
+            Write-Log "  Error: $($_.Exception.Message)"
+            Add-Content -Path $ERROR_LOG -Value "[R library] Not writable after takeown: $R_LIB -- $($_.Exception.Message)" -Encoding UTF8
+        }
     }
 
     if (-not $libWritable) {
@@ -455,14 +482,15 @@ if ($rscript) {
         & $rscript -e "install.packages(c($pkgList), lib='$R_LIB_R', repos='https://cloud.r-project.org', type='binary', quiet=FALSE)" 2>&1 |
             ForEach-Object { Write-Log "  [R] $_" }
 
-        # Verify all packages actually installed - type='binary' + quiet=FALSE still
-        # doesn't set a non-zero exit code on partial failure, so check explicitly.
-        $verifyScript = "missing <- c($pkgList)[!c($pkgList) %in% rownames(installed.packages(lib.loc='$R_LIB_R'))]; if(length(missing)==0) cat('OK') else cat('MISSING:', paste(missing, collapse=','))"
+        # Verify all packages installed and loadable - type='binary' + quiet=FALSE
+        # still doesn't set a non-zero exit code on partial failure, so check
+        # explicitly via requireNamespace() (catches broken installs / missing libs).
+        $verifyScript = "pkgs <- c($pkgList); .libPaths(c('$R_LIB_R', .libPaths())); bad <- pkgs[!sapply(pkgs, requireNamespace, quietly=TRUE)]; if(length(bad)==0) cat('OK') else cat('MISSING:', paste(bad, collapse=','))"
         $verifyOut = (& $rscript --no-save -e $verifyScript 2>&1) -join " "
         if ($verifyOut -match "^OK") {
-            Write-Log "R package verification: all $($R_PACKAGES.Count) packages present."
+            Write-Log "R package verification: all $($R_PACKAGES.Count) packages installed and loadable."
         } else {
-            Write-Log "WARNING: Some packages missing after bulk install - retrying individually: $verifyOut"
+            Write-Log "WARNING: Some packages not loadable after bulk install - retrying individually: $verifyOut"
             Add-Content -Path $ERROR_LOG -Value "[R packages verify] $verifyOut" -Encoding UTF8
             # Retry each missing package one at a time with binary type
             $missingCsv = ($verifyOut -replace "MISSING:\s*", "").Trim()
@@ -477,9 +505,9 @@ if ($rscript) {
             # Final check after retry
             $finalOut = (& $rscript --no-save -e $verifyScript 2>&1) -join " "
             if ($finalOut -match "^OK") {
-                Write-Log "R package verification after retry: all $($R_PACKAGES.Count) packages present."
+                Write-Log "R package verification after retry: all $($R_PACKAGES.Count) packages installed and loadable."
             } else {
-                Write-Log "ERROR: R packages still missing after retry: $finalOut"
+                Write-Log "ERROR: R packages still not loadable after retry: $finalOut"
                 Add-Content -Path $ERROR_LOG -Value "[R packages retry] $finalOut" -Encoding UTF8
             }
         }
@@ -519,7 +547,13 @@ $rscript = Find-Rscript
 if ($rscript) {
     $rVer = (& $rscript --version 2>&1) -join " "
     if ($rVer -match "R version (\S+)") { $rVer = "R $($matches[1])" }
-    $lines += Req-Line "R         " $true  "$rVer  ($rscript)"
+    # Validate installed version meets the pinned minimum
+    $installedRVer = Get-InstalledRVersion $rscript
+    $rVersionOk    = $installedRVer -and ($installedRVer -ge $requiredVersion)
+    $rDetail       = if ($rVersionOk) { "$rVer  ($rscript)" } `
+                     else { "$rVer is older than required $R_VERSION  ($rscript)" }
+    $lines += Req-Line "R         " $rVersionOk $rDetail
+    if (-not $rVersionOk) { $allOk = $false }
     # Add R bin dir to PATH so subsequent checks can use Rscript by name
     $rBin = Split-Path $rscript
     $env:PATH = "$rBin;$env:PATH"
@@ -568,7 +602,7 @@ $lines += "  R packages (lib: $R_LIB):"
 if ($rscript -and (Test-Path $R_LIB)) {
     $pkgList  = ($R_PACKAGES | ForEach-Object { "'$_'" }) -join ", "
     $R_LIB_R  = $R_LIB.Replace('\', '/')
-    $checkScript = "pkgs <- c($pkgList); inst <- rownames(installed.packages(lib.loc='$R_LIB_R')); for(p in pkgs){ cat(if(p %in% inst) 'OK' else 'MISSING', p, '\n') }"
+    $checkScript = "pkgs <- c($pkgList); .libPaths(c('$R_LIB_R', .libPaths())); for(p in pkgs){ cat(if(requireNamespace(p, quietly=TRUE)) 'OK' else 'MISSING', p, '\n') }"
     $pkgResults  = (& $rscript --no-save -e $checkScript 2>&1)
     $missingPkgs = @()
     foreach ($line in $pkgResults) {
@@ -580,9 +614,9 @@ if ($rscript -and (Test-Path $R_LIB)) {
         }
     }
     if ($missingPkgs.Count -eq 0) {
-        $lines += "  [OK  ] All $($R_PACKAGES.Count) required packages present"
+        $lines += "  [OK  ] All $($R_PACKAGES.Count) required packages installed and loadable"
     } else {
-        $lines += "  [FAIL] Missing packages ($($missingPkgs.Count)): $($missingPkgs -join ', ')"
+        $lines += "  [FAIL] Not loadable ($($missingPkgs.Count)): $($missingPkgs -join ', ')"
     }
 } elseif (-not $rscript) {
     $lines += "    [SKIP] Cannot check - R not found"
