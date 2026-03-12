@@ -138,3 +138,112 @@ def _reload_path_utils_after():
     import utils.path_utils as m
 
     importlib.reload(m)
+
+
+# ---------------------------------------------------------------------------
+# _sync_template() tests
+# ---------------------------------------------------------------------------
+
+
+def _make_sync_template(monkeypatch, src_dir, dst_dir):
+    """Reload app.app_paths with _asset_root → src_dir and _data_root → dst_dir."""
+    import app.app_paths as ap
+
+    monkeypatch.setattr(ap, "_asset_root", lambda: src_dir)
+    monkeypatch.setattr(ap, "_data_root", lambda: dst_dir)
+    return ap._sync_template
+
+
+def test_sync_template_skips_when_not_frozen(monkeypatch, tmp_path):
+    """In dev mode _sync_template() returns without copying anything."""
+    monkeypatch.setattr(sys, "frozen", False, raising=False)
+    import app.app_paths as ap
+
+    src = tmp_path / "src"
+    src.mkdir()
+    dst = tmp_path / "dst"
+    (src / "ResilienceReport.qmd").write_text("hello", encoding="utf-8")
+
+    monkeypatch.setattr(ap, "_asset_root", lambda: src)
+    monkeypatch.setattr(ap, "_data_root", lambda: dst)
+    ap._sync_template()
+
+    assert not dst.exists()
+
+
+def test_sync_template_copies_when_dst_missing(monkeypatch, tmp_path):
+    """When frozen and dst QMD is absent, _sync_template() copies the file."""
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    import app.app_paths as ap
+
+    src = tmp_path / "src"
+    src.mkdir()
+    dst = tmp_path / "dst"
+    (src / "ResilienceReport.qmd").write_text("v2", encoding="utf-8")
+
+    monkeypatch.setattr(ap, "_asset_root", lambda: src)
+    monkeypatch.setattr(ap, "_data_root", lambda: dst)
+    ap._sync_template()
+
+    assert (dst / "ResilienceReport.qmd").read_text(encoding="utf-8") == "v2"
+
+
+def test_sync_template_skips_when_dst_newer(monkeypatch, tmp_path):
+    """When frozen and dst QMD is newer than src, _sync_template() skips copy."""
+    import os
+    import time
+
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    import app.app_paths as ap
+
+    src = tmp_path / "src"
+    src.mkdir()
+    dst = tmp_path / "dst"
+    dst.mkdir()
+
+    src_qmd = src / "ResilienceReport.qmd"
+    dst_qmd = dst / "ResilienceReport.qmd"
+    src_qmd.write_text("old", encoding="utf-8")
+    dst_qmd.write_text("current", encoding="utf-8")
+
+    # Make dst newer than src
+    t = time.time()
+    os.utime(src_qmd, (t - 100, t - 100))
+    os.utime(dst_qmd, (t, t))
+
+    monkeypatch.setattr(ap, "_asset_root", lambda: src)
+    monkeypatch.setattr(ap, "_data_root", lambda: dst)
+    ap._sync_template()
+
+    # dst should still contain "current" — no copy happened
+    assert dst_qmd.read_text(encoding="utf-8") == "current"
+
+
+def test_sync_template_copies_when_src_newer(monkeypatch, tmp_path):
+    """When frozen and src QMD is newer than dst, _sync_template() re-copies."""
+    import os
+    import time
+
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    import app.app_paths as ap
+
+    src = tmp_path / "src"
+    src.mkdir()
+    dst = tmp_path / "dst"
+    dst.mkdir()
+
+    src_qmd = src / "ResilienceReport.qmd"
+    dst_qmd = dst / "ResilienceReport.qmd"
+    src_qmd.write_text("updated", encoding="utf-8")
+    dst_qmd.write_text("stale", encoding="utf-8")
+
+    # Make src newer than dst
+    t = time.time()
+    os.utime(dst_qmd, (t - 100, t - 100))
+    os.utime(src_qmd, (t, t))
+
+    monkeypatch.setattr(ap, "_asset_root", lambda: src)
+    monkeypatch.setattr(ap, "_data_root", lambda: dst)
+    ap._sync_template()
+
+    assert dst_qmd.read_text(encoding="utf-8") == "updated"

@@ -89,7 +89,7 @@ def find_report_file(company, person, reports_folder):
 
 
 def send_emails():
-    df = pd.read_csv(CSV_PATH)
+    df = pd.read_csv(CSV_PATH, encoding="utf-8")
     df.columns = df.columns.str.lower().str.strip()
 
     required_cols = {"company_name", "email_address", "name"}

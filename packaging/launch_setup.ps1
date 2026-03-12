@@ -1,8 +1,11 @@
 <#
 .SYNOPSIS
-    Registers a Task Scheduler task that runs setup_dependencies.ps1 as SYSTEM
-    and starts it immediately. Called synchronously from the NSIS installer;
-    returns in < 1 second.
+    Registers a Task Scheduler task that runs setup_dependencies.ps1 as SYSTEM,
+    starts it, then blocks until setup_complete.flag is written (or timeout).
+    Called synchronously from the NSIS installer so the installer only shows
+    "Installation Complete" once R/Quarto/TinyTeX are actually installed.
+
+    Exit code: 0 = setup finished with PASS, 1 = setup finished with FAIL or timed out.
 
 .PARAMETER InstallDir
     Installation directory (e.g. C:\Program Files\ResilenceScanReportBuilder).
@@ -62,9 +65,44 @@ Register-ScheduledTask -TaskName "ResilienceScanSetup" `
 
 Start-ScheduledTask -TaskName "ResilienceScanSetup"
 
-"[LAUNCHER $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Task started. Monitor this file for progress." |
+"[LAUNCHER $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Task started. Waiting for completion..." |
     Add-Content $logFile -Encoding UTF8
 
-Write-Host "[SETUP] Background dependency setup started."
-Write-Host "[SETUP] Monitor : $logFile"
-Write-Host "[SETUP] Errors  : C:\ProgramData\ResilienceScan\setup_error.log"
+Write-Host "[SETUP] Dependency setup running - please wait (this may take 5-20 minutes)..."
+Write-Host "[SETUP] Progress: $logFile"
+
+# ------------------------------------------------------------------
+# Block until setup_complete.flag is written by setup_dependencies.ps1.
+# Timeout matches the Task Scheduler execution time limit (2 hours).
+# ------------------------------------------------------------------
+$flagFile    = "$logDir\setup_complete.flag"
+$timeoutSecs = 7200   # 2 hours
+$pollSecs    = 5
+$elapsed     = 0
+
+while (-not (Test-Path $flagFile)) {
+    Start-Sleep -Seconds $pollSecs
+    $elapsed += $pollSecs
+    if ($elapsed % 60 -eq 0) {
+        Write-Host "[SETUP] Still running... ($([int]($elapsed/60)) min elapsed)"
+    }
+    if ($elapsed -ge $timeoutSecs) {
+        "[LAUNCHER $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] TIMEOUT waiting for setup_complete.flag after $($timeoutSecs)s." |
+            Add-Content $logFile -Encoding UTF8
+        Write-Host "[SETUP] ERROR: Setup timed out after $([int]($timeoutSecs/60)) minutes."
+        exit 1
+    }
+}
+
+# Read the result written by setup_dependencies.ps1
+$flagContent = (Get-Content $flagFile -Raw -ErrorAction SilentlyContinue) -replace '\s',''
+"[LAUNCHER $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Setup finished with result: $flagContent" |
+    Add-Content $logFile -Encoding UTF8
+
+if ($flagContent -match "PASS") {
+    Write-Host "[SETUP] Dependency setup completed successfully."
+    exit 0
+} else {
+    Write-Host "[SETUP] ERROR: Dependency setup finished with errors. Check $logFile"
+    exit 1
+}

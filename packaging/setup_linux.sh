@@ -184,35 +184,43 @@ Rscript -e "
 # non-zero on partial failure, so check explicitly via requireNamespace() and
 # retry any that fail (catches broken installs, missing system libs, etc.).
 log "Verifying R packages (installed and loadable)..."
-MISSING=$(Rscript --no-save -e "
+
+# Guard: if Rscript is not on PATH at this point, treat as FAIL rather than
+# silently reporting "all packages OK" (which was the old bug with || true).
+if ! command -v Rscript &>/dev/null; then
+    log "ERROR: Rscript not found on PATH - cannot verify R packages."
+    SETUP_RESULT="FAIL"
+else
+    MISSING=$(Rscript --no-save -e "
   .libPaths(c('$R_LIB', .libPaths()))
   pkgs <- c($R_PKGS)
   bad <- pkgs[!sapply(pkgs, requireNamespace, quietly=TRUE)]
   cat(paste(bad, collapse=' '))
-" 2>/dev/null || true)
+" 2>&1) || { log "WARNING: Rscript package check command failed"; MISSING="check_failed"; }
 
-if [ -n "$MISSING" ]; then
-    log "Retrying packages that failed to load: $MISSING"
-    for pkg in $MISSING; do
-        Rscript -e "install.packages('$pkg', lib='$R_LIB', repos='https://cloud.r-project.org')" || true
-    done
-    # Final check after retry
-    STILL_MISSING=$(Rscript --no-save -e "
+    if [ -n "$MISSING" ]; then
+        log "Retrying packages that failed to load: $MISSING"
+        for pkg in $MISSING; do
+            Rscript -e "install.packages('$pkg', lib='$R_LIB', repos='https://cloud.r-project.org')" 2>&1 || true
+        done
+        # Final check after retry
+        STILL_MISSING=$(Rscript --no-save -e "
       .libPaths(c('$R_LIB', .libPaths()))
       pkgs <- c($R_PKGS)
       bad <- pkgs[!sapply(pkgs, requireNamespace, quietly=TRUE)]
       cat(paste(bad, collapse=' '))
-    " 2>/dev/null || true)
-    if [ -n "$STILL_MISSING" ]; then
-        log "ERROR: R packages still not loadable after retry: $STILL_MISSING"
-        SETUP_RESULT="FAIL"
+" 2>&1) || { log "WARNING: Rscript final check failed"; STILL_MISSING="check_failed"; }
+        if [ -n "$STILL_MISSING" ]; then
+            log "ERROR: R packages still not loadable after retry: $STILL_MISSING"
+            SETUP_RESULT="FAIL"
+        else
+            log "R package retry succeeded -- all packages installed and loadable."
+            SETUP_RESULT="PASS"
+        fi
     else
-        log "R package retry succeeded -- all packages installed and loadable."
+        log "R package verification: all packages installed and loadable."
         SETUP_RESULT="PASS"
     fi
-else
-    log "R package verification: all packages installed and loadable."
-    SETUP_RESULT="PASS"
 fi
 
 # Ensure the R library is readable by all users

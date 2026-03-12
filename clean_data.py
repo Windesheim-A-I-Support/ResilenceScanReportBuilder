@@ -255,7 +255,7 @@ class DataCleaningValidator:
         if replacement_log:
             try:
                 DATA_DIR.mkdir(parents=True, exist_ok=True)
-                pd.DataFrame(replacement_log).to_csv(REPLACEMENT_LOG, index=False)
+                pd.DataFrame(replacement_log).to_csv(REPLACEMENT_LOG, index=False, encoding="utf-8")
                 self.log_issue(
                     "INFO",
                     f"Saved {len(replacement_log)} replacement details to: {REPLACEMENT_LOG}",
@@ -409,7 +409,7 @@ def clean_and_fix():
     # Load
     validator.log_issue("INFO", f"Loading data from: {INPUT_PATH}")
     try:
-        df = pd.read_csv(INPUT_PATH, low_memory=False)
+        df = pd.read_csv(INPUT_PATH, low_memory=False, encoding="utf-8")
         validator.statistics["initial_rows"] = len(df)
         validator.log_issue("INFO", f"Loaded {len(df)} rows, {len(df.columns)} columns")
     except Exception as e:
@@ -462,7 +462,7 @@ def clean_and_fix():
     # Save
     try:
         DATA_DIR.mkdir(parents=True, exist_ok=True)
-        df.to_csv(INPUT_PATH, index=False)
+        df.to_csv(INPUT_PATH, index=False, encoding="utf-8")
         validator.log_issue("INFO", f"Saved cleaned data: {INPUT_PATH}")
     except Exception as e:
         validator.log_issue("ERROR", f"Failed to save CSV: {e}")

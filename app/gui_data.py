@@ -308,7 +308,7 @@ class DataMixin:
         self.log("Loading data from: " + str(DATA_FILE))
         try:
             if DATA_FILE.exists():
-                self.df = pd.read_csv(DATA_FILE)
+                self.df = pd.read_csv(DATA_FILE, encoding="utf-8")
                 self.df.columns = self.df.columns.str.lower().str.strip()
 
                 # Update statistics
@@ -402,7 +402,7 @@ class DataMixin:
                 self.log("[OK] Conversion complete \u2014 loading cleaned_master.csv")
                 csv_path = DATA_FILE
 
-            self.df = pd.read_csv(csv_path)
+            self.df = pd.read_csv(csv_path, encoding="utf-8")
             self.df.columns = self.df.columns.str.lower().str.strip()
 
             self.data_file_label.config(text=str(csv_path))
@@ -440,7 +440,7 @@ class DataMixin:
 
                 # Automatically load the converted data
                 try:
-                    self.df = pd.read_csv(DATA_FILE)
+                    self.df = pd.read_csv(DATA_FILE, encoding="utf-8")
                     self.df.columns = self.df.columns.str.lower().str.strip()
                     self.update_stats_display()
                     self.update_data_preview()
@@ -496,7 +496,7 @@ class DataMixin:
 
                 # Automatically reload the cleaned data
                 try:
-                    self.df = pd.read_csv(DATA_FILE)
+                    self.df = pd.read_csv(DATA_FILE, encoding="utf-8")
                     self.df.columns = self.df.columns.str.lower().str.strip()
                     self.update_stats_display()
                     self.update_data_preview()
@@ -649,8 +649,8 @@ class DataMixin:
             if success:
                 self.log("[OK] Data integrity validation completed!")
 
-                report_path = Path("./data/integrity_validation_report.txt")
-                json_path = Path("./data/integrity_validation_report.json")
+                report_path = _DATA_ROOT / "data" / "integrity_validation_report.txt"
+                json_path = _DATA_ROOT / "data" / "integrity_validation_report.json"
 
                 if json_path.exists():
                     with open(json_path, encoding="utf-8") as f:
@@ -1094,7 +1094,7 @@ TOP 10 MOST ENGAGED COMPANIES:
 
         if filename:
             try:
-                self.filtered_df.to_csv(filename, index=False)
+                self.filtered_df.to_csv(filename, index=False, encoding="utf-8")
                 messagebox.showinfo(
                     "Success",
                     f"Exported {len(self.filtered_df)} records to:\n{filename}",
@@ -1353,29 +1353,3 @@ Click 'Run Quality Dashboard' for detailed analysis with visualizations."""
         self.stats_labels["reports"].config(text=str(self.stats["reports_generated"]))
         self.stats_labels["emails"].config(text=str(self.stats["emails_sent"]))
 
-    def update_time(self):
-        """Update time in status bar"""
-        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        self.status_time_label.config(text=current_time)
-        self.root.after(1000, self.update_time)
-
-    def show_about(self):
-        """Show about dialog"""
-        from update_checker import _current_version
-
-        about_text = f"""
-ResilienceScan Control Center
-Version {_current_version()}
-
-A graphical interface for managing supply chain resilience assessments.
-
-Features:
-\u2022 Data processing and validation
-\u2022 PDF report generation
-\u2022 Email distribution
-\u2022 Real-time monitoring and logging
-
-\u00a9 2025 Supply Chain Finance Lectoraat
-Hogeschool Windesheim
-"""
-        messagebox.showinfo("About", about_text)

@@ -198,6 +198,36 @@ class ResilienceScanGUI(
         # Update time every second
         self.update_time()
 
+    def update_time(self):
+        """Update time in status bar"""
+        from datetime import datetime
+
+        self.status_time_label.config(text=datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+        self.root.after(1000, self.update_time)
+
+    def show_about(self):
+        """Show about dialog"""
+        from tkinter import messagebox
+
+        from update_checker import _current_version
+
+        about_text = f"""
+ResilienceScan Control Center
+Version {_current_version()}
+
+A graphical interface for managing supply chain resilience assessments.
+
+Features:
+\u2022 Data processing and validation
+\u2022 PDF report generation
+\u2022 Email distribution
+\u2022 Real-time monitoring and logging
+
+\u00a9 2025 Supply Chain Finance Lectoraat
+Hogeschool Windesheim
+"""
+        messagebox.showinfo("About", about_text)
+
     def _on_update_available(self, info):
         """Called (on the main thread) when the update check completes."""
         if not info:

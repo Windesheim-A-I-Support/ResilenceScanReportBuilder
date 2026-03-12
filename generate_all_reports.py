@@ -8,7 +8,8 @@ import pandas as pd
 
 from utils.filename_utils import safe_display_name, safe_filename
 
-# [OK] CONFIGURATION
+# NOTE: dev-only CLI tool — paths are relative to repo root and will not work
+# in the frozen/installed app.  Use the GUI (app/main.py) for production use.
 ROOT = Path(__file__).resolve().parent
 TEMPLATE = ROOT / "ResilienceReport.qmd"
 DATA = ROOT / "data" / "cleaned_master.csv"

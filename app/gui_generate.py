@@ -21,6 +21,7 @@ from app.app_paths import (
     _check_r_packages_ready,
     _r_library_path,
 )
+from utils.filename_utils import safe_display_name, safe_filename
 
 
 class GenerationMixin:
@@ -280,27 +281,6 @@ class GenerationMixin:
             return
 
         try:
-            # Create safe filenames
-            def safe_filename(name):
-                if pd.isna(name) or name == "":
-                    return "Unknown"
-                return "".join(
-                    c if c.isalnum() or c in [" ", "-"] else "_" for c in str(name)
-                ).replace(" ", "_")
-
-            def safe_display_name(name):
-                if pd.isna(name) or name == "":
-                    return "Unknown"
-                name_str = str(name).strip()
-                name_str = (
-                    name_str.replace("/", "-").replace("\\", "-").replace(":", "-")
-                )
-                name_str = name_str.replace("*", "").replace("?", "").replace('"', "'")
-                name_str = (
-                    name_str.replace("<", "(").replace(">", ")").replace("|", "-")
-                )
-                return name_str
-
             safe_company = safe_filename(company)
             safe_person = safe_filename(person)
             display_company = safe_display_name(company)
@@ -378,88 +358,93 @@ class GenerationMixin:
 
             # Execute quarto render — cwd=_DATA_ROOT so quarto writes .quarto/
             # there (writable) and R finds data/cleaned_master.csv correctly.
-            result = subprocess.run(
-                cmd,
-                cwd=str(_DATA_ROOT),
-                capture_output=True,
-                text=True,
-                timeout=300,
-                env=single_env,
-            )
+            # The finally block cleans up temp_path if shutil.move() was never reached.
+            try:
+                result = subprocess.run(
+                    cmd,
+                    cwd=str(_DATA_ROOT),
+                    capture_output=True,
+                    text=True,
+                    timeout=300,
+                    env=single_env,
+                )
 
-            if result.returncode == 0:
-                if temp_path.exists():
-                    shutil.move(str(temp_path), str(output_file))
-                    self.log_gen(f"[OK] Saved: {output_file}")
+                if result.returncode == 0:
+                    if temp_path.exists():
+                        shutil.move(str(temp_path), str(output_file))
+                        self.log_gen(f"[OK] Saved: {output_file}")
 
-                    # Validate the generated report
-                    try:
-                        from validate_single_report import validate_report
+                        # Validate the generated report
+                        try:
+                            from validate_single_report import validate_report
 
-                        validation_result = validate_report(
-                            pdf_path=str(output_file),
-                            csv_path=str(DATA_FILE),
-                            company_name=company,
-                            person_name=person,
-                        )
+                            validation_result = validate_report(
+                                pdf_path=str(output_file),
+                                csv_path=str(DATA_FILE),
+                                company_name=company,
+                                person_name=person,
+                            )
 
-                        if validation_result["success"]:
-                            self.log_gen("[OK] Validation passed: All values match CSV")
+                            if validation_result["success"]:
+                                self.log_gen("[OK] Validation passed: All values match CSV")
+                                messagebox.showinfo(
+                                    "Success",
+                                    f"Report generated and validated!\n\n{output_filename}\n\nAll values match CSV data.",
+                                )
+                            else:
+                                self.log_gen(
+                                    f"[WARNING] Validation: {validation_result['message']}"
+                                )
+                                # Log details
+                                for _key, info in validation_result.get(
+                                    "details", {}
+                                ).items():
+                                    if not info["matches"]:
+                                        exp = (
+                                            f"{info['expected']:.2f}"
+                                            if info.get("expected") is not None
+                                            else "N/A"
+                                        )
+                                        act = (
+                                            f"{info['actual']:.2f}"
+                                            if info.get("actual") is not None
+                                            else "N/A"
+                                        )
+                                        self.log_gen(
+                                            f"    {info['label']}: Expected={exp}, Actual={act}"
+                                        )
+
+                                messagebox.showwarning(
+                                    "Report Generated with Warnings",
+                                    f"Report generated:\n{output_filename}\n\nBut validation found issues:\n{validation_result['message']}\n\nCheck logs for details.",
+                                )
+                        except Exception as ve:
+                            self.log_gen(f"[INFO] Validation skipped: {ve}")
                             messagebox.showinfo(
-                                "Success",
-                                f"Report generated and validated!\n\n{output_filename}\n\nAll values match CSV data.",
+                                "Success", f"Report generated!\n\n{output_filename}"
                             )
-                        else:
-                            self.log_gen(
-                                f"[WARNING] Validation: {validation_result['message']}"
-                            )
-                            # Log details
-                            for _key, info in validation_result.get(
-                                "details", {}
-                            ).items():
-                                if not info["matches"]:
-                                    exp = (
-                                        f"{info['expected']:.2f}"
-                                        if info.get("expected") is not None
-                                        else "N/A"
-                                    )
-                                    act = (
-                                        f"{info['actual']:.2f}"
-                                        if info.get("actual") is not None
-                                        else "N/A"
-                                    )
-                                    self.log_gen(
-                                        f"    {info['label']}: Expected={exp}, Actual={act}"
-                                    )
 
-                            messagebox.showwarning(
-                                "Report Generated with Warnings",
-                                f"Report generated:\n{output_filename}\n\nBut validation found issues:\n{validation_result['message']}\n\nCheck logs for details.",
-                            )
-                    except Exception as ve:
-                        self.log_gen(f"[INFO] Validation skipped: {ve}")
-                        messagebox.showinfo(
-                            "Success", f"Report generated!\n\n{output_filename}"
+                        self.status_label.config(text="Report generated successfully")
+                    else:
+                        self.log_gen("[ERROR] Output file not found after rendering")
+                        messagebox.showerror(
+                            "Error", "Report generation failed: Output file not found"
                         )
-
-                    self.status_label.config(text="Report generated successfully")
+                        self.status_label.config(text="Error")
                 else:
-                    self.log_gen("[ERROR] Output file not found after rendering")
+                    self.log_gen(
+                        f"[ERROR] Quarto render failed with exit code {result.returncode}"
+                    )
+                    if result.stderr:
+                        self.log_gen(f"stderr: {result.stderr[:2000]}")
                     messagebox.showerror(
-                        "Error", "Report generation failed: Output file not found"
+                        "Generation Failed",
+                        "Report generation failed.\n\nCheck logs for details.",
                     )
                     self.status_label.config(text="Error")
-            else:
-                self.log_gen(
-                    f"[ERROR] Quarto render failed with exit code {result.returncode}"
-                )
-                if result.stderr:
-                    self.log_gen(f"stderr: {result.stderr[:2000]}")
-                messagebox.showerror(
-                    "Generation Failed",
-                    "Report generation failed.\n\nCheck logs for details.",
-                )
-                self.status_label.config(text="Error")
+
+            finally:
+                temp_path.unlink(missing_ok=True)
 
         except FileNotFoundError:
             self.log_gen(
@@ -617,8 +602,7 @@ class GenerationMixin:
         failed = 0
         skipped = 0
 
-        self.gen_progress["maximum"] = total
-        self.gen_progress["value"] = 0
+        self.root.after(0, lambda t=total: self.gen_progress.configure(maximum=t, value=0))
 
         for idx, row in self.df.iterrows():
             try:
@@ -629,17 +613,14 @@ class GenerationMixin:
                 company = row.get("company_name", "Unknown")
                 person = row.get("name", "Unknown")
 
-                # Handle potential encoding issues in GUI labels
+                # Update label via main thread (Tkinter is not thread-safe)
                 try:
                     display_text = f"Generating: {company} - {person}"
-                    self.gen_current_label.config(text=display_text)
                 except (UnicodeDecodeError, UnicodeEncodeError):
-                    # Fallback to safe ASCII if encoding fails
-                    safe_company = company.encode("ascii", "replace").decode("ascii")
-                    safe_person = person.encode("ascii", "replace").decode("ascii")
-                    self.gen_current_label.config(
-                        text=f"Generating: {safe_company} - {safe_person}"
-                    )
+                    safe_c = company.encode("ascii", "replace").decode("ascii")
+                    safe_p = person.encode("ascii", "replace").decode("ascii")
+                    display_text = f"Generating: {safe_c} - {safe_p}"
+                self.root.after(0, lambda t=display_text: self.gen_current_label.config(text=t))
                 # Pre-generation validation: Check if record has sufficient data
                 validation_result = self.validate_record_for_report(row)
 
@@ -651,29 +632,6 @@ class GenerationMixin:
                     continue
 
                 self.log_gen(f"[{idx + 1}/{total}] Generating: {company} - {person}")
-
-                # Create safe filenames
-                def safe_filename(name):
-                    if pd.isna(name) or name == "":
-                        return "Unknown"
-                    return "".join(
-                        c if c.isalnum() or c in [" ", "-"] else "_" for c in str(name)
-                    ).replace(" ", "_")
-
-                def safe_display_name(name):
-                    if pd.isna(name) or name == "":
-                        return "Unknown"
-                    name_str = str(name).strip()
-                    name_str = (
-                        name_str.replace("/", "-").replace("\\", "-").replace(":", "-")
-                    )
-                    name_str = (
-                        name_str.replace("*", "").replace("?", "").replace('"', "'")
-                    )
-                    name_str = (
-                        name_str.replace("<", "(").replace(">", ")").replace("|", "-")
-                    )
-                    return name_str
 
                 safe_company = safe_filename(company)
                 safe_person = safe_filename(person)
@@ -854,29 +812,24 @@ class GenerationMixin:
             except Exception as e:
                 failed += 1
                 self.log_gen(f"  [ERROR] Error: {e}")
-
-                self.gen_progress["value"] = idx + 1
-                self.gen_progress_label.config(
-                    text=f"Progress: {idx + 1}/{total} | Success: {success} | Failed: {failed} | Skipped: {skipped}"
+                _i, _s, _f, _sk = idx + 1, success, failed, skipped
+                self.root.after(
+                    0,
+                    lambda i=_i, t=total, s=_s, f=_f, sk=_sk: (
+                        self.gen_progress.configure(value=i),
+                        self.gen_progress_label.config(
+                            text=f"Progress: {i}/{t} | Success: {s} | Failed: {f} | Skipped: {sk}"
+                        ),
+                    ),
                 )
 
-            except Exception as e:  # noqa: B025
-                # Catch-all for ANY exception in loop (including encoding errors, etc)
-                failed += 1
-                self.log_gen(f"[{idx + 1}/{total}] CRITICAL ERROR: {e}")
-                self.log_gen(
-                    f"     Company: {row.get('company_name', 'Unknown')}, Person: {row.get('name', 'Unknown')}"
-                )
-                # Continue processing next record despite error
-                self.gen_progress["value"] = idx + 1
-                self.gen_progress_label.config(
-                    text=f"Progress: {idx + 1}/{total} | Success: {success} | Failed: {failed} | Skipped: {skipped}"
-                )
+        def _reset_gen():
+            self.is_generating = False
+            self.gen_start_btn.config(state=tk.NORMAL)
+            self.gen_cancel_btn.config(state=tk.DISABLED)
+            self.gen_current_label.config(text="Generation complete")
 
-        self.is_generating = False
-        self.gen_start_btn.config(state=tk.NORMAL)
-        self.gen_cancel_btn.config(state=tk.DISABLED)
-        self.gen_current_label.config(text="Generation complete")
+        self.root.after(0, _reset_gen)
 
         # Comprehensive summary
         self.log_gen("\n" + "=" * 60)

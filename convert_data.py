@@ -230,7 +230,7 @@ def _preserve_reportsent(df: pd.DataFrame, old_csv: Path) -> pd.DataFrame:
     if "reportsent" not in df.columns or not old_csv.exists():
         return df
     try:
-        old = pd.read_csv(old_csv, low_memory=False)
+        old = pd.read_csv(old_csv, low_memory=False, encoding="utf-8")
     except Exception:
         return df
     if "reportsent" not in old.columns:
@@ -301,7 +301,7 @@ def convert_and_save(path: Path | None = None) -> bool:
         df.insert(1, "reportsent", False)
 
     try:
-        df.to_csv(OUTPUT_PATH, index=False)
+        df.to_csv(OUTPUT_PATH, index=False, encoding="utf-8")
         print(f"[OK] Saved {len(df)} rows to {OUTPUT_PATH}")
         return True
     except Exception as e:

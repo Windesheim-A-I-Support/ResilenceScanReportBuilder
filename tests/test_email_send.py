@@ -166,7 +166,7 @@ def test_send_emails_smtp_auth_error(tmp_path, monkeypatch, capsys):
             send_email.send_emails()
 
     captured = capsys.readouterr()
-    assert "Authentication error" in captured.out or "FAIL" in captured.out
+    assert "Authentication error" in captured.out
 
 
 def test_send_emails_skips_invalid_email(tmp_path, monkeypatch, capsys):

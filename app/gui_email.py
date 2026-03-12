@@ -12,7 +12,7 @@ from tkinter import messagebox, scrolledtext, ttk
 
 import pandas as pd
 
-from app.app_paths import CONFIG_FILE, DATA_FILE, ROOT_DIR
+from app.app_paths import CONFIG_FILE, DATA_FILE, _DATA_ROOT
 
 try:
     import yaml
@@ -424,10 +424,18 @@ class EmailMixin:
 
     def save_config(self):
         """Save SMTP settings from GUI fields to config.yml."""
+        if yaml is None:
+            messagebox.showerror("Error", "PyYAML is not installed — cannot save configuration.")
+            return
+        try:
+            port = int(self.smtp_port_var.get() or 587)
+        except ValueError:
+            messagebox.showerror("Invalid Port", "SMTP port must be a number (e.g. 587).")
+            return
         data = {
             "smtp": {
                 "server": self.smtp_server_var.get(),
-                "port": int(self.smtp_port_var.get() or 587),
+                "port": port,
                 "from_address": self.smtp_from_var.get(),
                 "username": self.smtp_username_var.get(),
                 "password": self.smtp_password_var.get(),
@@ -445,6 +453,9 @@ class EmailMixin:
 
     def load_config(self):
         """Load SMTP settings from config.yml into GUI fields."""
+        if yaml is None:
+            self.log("[WARNING] PyYAML not installed — cannot load config.yml")
+            return
         if not CONFIG_FILE.exists():
             return
         try:
@@ -460,6 +471,8 @@ class EmailMixin:
                 self.smtp_username_var.set(smtp["username"])
             if smtp.get("password"):
                 self.smtp_password_var.set(smtp["password"])
+            # Load Outlook account priority list (empty list = use default account)
+            self.outlook_accounts = data.get("outlook_accounts", [])
         except Exception as e:
             self.log(f"[WARNING] Could not load config.yml: {e}")
 
@@ -475,7 +488,7 @@ class EmailMixin:
                 "body": self.email_body_text.get("1.0", tk.END).strip(),
             }
 
-            template_file = ROOT_DIR / "email_template.json"
+            template_file = _DATA_ROOT / "email_template.json"
             with open(template_file, "w", encoding="utf-8") as f:
                 json.dump(template_data, f, indent=2)
 
@@ -489,7 +502,7 @@ class EmailMixin:
     def load_email_template(self):
         """Load email template from file"""
         try:
-            template_file = ROOT_DIR / "email_template.json"
+            template_file = _DATA_ROOT / "email_template.json"
             if template_file.exists():
                 with open(template_file, encoding="utf-8") as f:
                     template_data = json.load(f)
@@ -622,7 +635,7 @@ class EmailMixin:
         # Load CSV data if not already loaded
         if self.df is None and DATA_FILE.exists():
             try:
-                self.df = pd.read_csv(DATA_FILE)
+                self.df = pd.read_csv(DATA_FILE, encoding="utf-8")
                 self.df.columns = self.df.columns.str.lower().str.strip()
                 self.log_email("[LOAD] Loaded CSV data for email display")
             except Exception as e:
@@ -766,10 +779,10 @@ class EmailMixin:
                 self.df.loc[mask, "reportsent"] = True
 
                 # Save back to CSV file
-                self.df.to_csv(DATA_FILE, index=False)
+                self.df.to_csv(DATA_FILE, index=False, encoding="utf-8")
 
                 # Reload the CSV to ensure we have the latest data
-                self.df = pd.read_csv(DATA_FILE)
+                self.df = pd.read_csv(DATA_FILE, encoding="utf-8")
                 self.df.columns = self.df.columns.str.lower().str.strip()
 
                 self.log_email(
@@ -815,7 +828,7 @@ class EmailMixin:
                     self.df.loc[mask, "reportsent"] = False
 
                     # Save back to CSV file
-                    self.df.to_csv(DATA_FILE, index=False)
+                    self.df.to_csv(DATA_FILE, index=False, encoding="utf-8")
             except Exception as e:
                 self.log_email(f"[WARNING] Could not update CSV: {e}")
 
@@ -931,15 +944,22 @@ class EmailMixin:
             if not response:
                 return
 
+        try:
+            smtp_port_val = int(self.smtp_port_var.get() or "587")
+        except ValueError:
+            messagebox.showerror("Invalid Port", "SMTP port must be a number (e.g. 587).")
+            return
+
         self.is_sending_emails = True
         self.email_start_btn.config(state=tk.DISABLED)
         self.email_stop_btn.config(state=tk.NORMAL)
 
-        # Capture all widget values on the main thread before the background
-        # thread starts — Tkinter widgets are not thread-safe.
+        # Capture all widget values and the current DataFrame on the main thread
+        # before the background thread starts — Tkinter widgets are not thread-safe,
+        # and self.df can be replaced by the main thread while the email thread runs.
         send_config = {
             "smtp_server": self.smtp_server_var.get(),
-            "smtp_port": int(self.smtp_port_var.get() or 587),
+            "smtp_port": smtp_port_val,
             "smtp_username": self.smtp_username_var.get(),
             "smtp_password": self.smtp_password_var.get(),
             "smtp_from": self.smtp_from_var.get(),
@@ -948,6 +968,8 @@ class EmailMixin:
             "test_email": self.test_email_var.get().strip(),
             "subject_template": self.email_subject_var.get(),
             "body_template": self.email_body_text.get("1.0", tk.END).strip(),
+            "df": self.df.copy() if self.df is not None else None,
+            "outlook_accounts": list(getattr(self, "outlook_accounts", [])),
         }
 
         # Start email sending in background thread
@@ -1010,6 +1032,9 @@ class EmailMixin:
     def _send_emails_impl(self, send_config):
         """Implementation of email sending - separated for COM initialization"""
 
+        # Use the DataFrame snapshot captured on the main thread (thread-safe).
+        df_snap = send_config.get("df")
+
         # Scan output folder for PDF files (same as display logic)
         _out_dir = send_config["out_dir"]
         report_files = glob.glob(str(_out_dir / "*.pdf"))
@@ -1053,22 +1078,22 @@ class EmailMixin:
                 if content and " - " in content:
                     company, person = content.rsplit(" - ", 1)
 
-                    # Look up email address from CSV data
+                    # Look up email address from CSV snapshot (captured on main thread)
                     email = ""
-                    if self.df is not None:
-                        matches = self.df[
-                            (self.df["company_name"].str.strip() == company.strip())
-                            & (self.df["name"].str.strip() == person.strip())
+                    if df_snap is not None:
+                        matches = df_snap[
+                            (df_snap["company_name"].str.strip() == company.strip())
+                            & (df_snap["name"].str.strip() == person.strip())
                         ]
                         if not matches.empty:
                             email = matches.iloc[0].get("email_address", "")
 
                     # Check if already sent (from CSV reportsent column)
                     is_sent = False
-                    if self.df is not None and "reportsent" in self.df.columns:
-                        matches = self.df[
-                            (self.df["company_name"].str.strip() == company.strip())
-                            & (self.df["name"].str.strip() == person.strip())
+                    if df_snap is not None and "reportsent" in df_snap.columns:
+                        matches = df_snap[
+                            (df_snap["company_name"].str.strip() == company.strip())
+                            & (df_snap["name"].str.strip() == person.strip())
                         ]
                         if not matches.empty:
                             is_sent = matches.iloc[0].get("reportsent", False)
@@ -1190,175 +1215,124 @@ class EmailMixin:
                     raise ValueError(f"Invalid recipient email address: {recipient}")
 
                 # Try Outlook first with priority account fallback, then SMTP
-                use_outlook = True
-                outlook_error = None
 
-                if use_outlook:
+                try:
+                    self.log_email("  [OUTLOOK] Attempting to send via Outlook...")
+                    import win32com.client
+
+                    # Create Outlook instance
+                    outlook = win32com.client.Dispatch("Outlook.Application")
+
+                    # Define account priority list
+                    # Priority accounts loaded from config.yml (outlook_accounts key)
+                    priority_accounts = send_config.get("outlook_accounts", [])
+
+                    # Get all available accounts
+                    available_accounts = []
                     try:
-                        self.log_email("  [OUTLOOK] Attempting to send via Outlook...")
-                        import win32com.client
+                        for i in range(1, outlook.Session.Accounts.Count + 1):
+                            account = outlook.Session.Accounts.Item(i)
+                            available_accounts.append(
+                                (account.SmtpAddress, account)
+                            )
+                        self.log_email(
+                            f"  Found {len(available_accounts)} Outlook account(s)"
+                        )
+                    except Exception as e:
+                        self.log_email(
+                            f"  [WARNING] Could not enumerate Outlook accounts: {e}"
+                        )
 
-                        # Create Outlook instance
-                        outlook = win32com.client.Dispatch("Outlook.Application")
+                    # Select account based on priority
+                    selected_account = None
+                    selected_address = None
 
-                        # Define account priority list
-                        priority_accounts = [
-                            "info@resiliencescan.org",
-                            "r.deboer@windesheim.nl",
-                            "cg.verhoef@windesheim.nl",
-                        ]
-
-                        # Get all available accounts
-                        available_accounts = []
-                        try:
-                            for i in range(1, outlook.Session.Accounts.Count + 1):
-                                account = outlook.Session.Accounts.Item(i)
-                                available_accounts.append(
-                                    (account.SmtpAddress, account)
+                    # Try priority accounts first
+                    for priority_email in priority_accounts:
+                        for smtp_address, account in available_accounts:
+                            if smtp_address.lower() == priority_email.lower():
+                                selected_account = account
+                                selected_address = smtp_address
+                                self.log_email(
+                                    f"  [OK] Using priority account: {selected_address}"
                                 )
-                            self.log_email(
-                                f"  Found {len(available_accounts)} Outlook account(s)"
-                            )
-                        except Exception as e:
-                            self.log_email(
-                                f"  [WARNING] Could not enumerate Outlook accounts: {e}"
-                            )
-
-                        # Select account based on priority
-                        selected_account = None
-                        selected_address = None
-
-                        # Try priority accounts first
-                        for priority_email in priority_accounts:
-                            for smtp_address, account in available_accounts:
-                                if smtp_address.lower() == priority_email.lower():
-                                    selected_account = account
-                                    selected_address = smtp_address
-                                    self.log_email(
-                                        f"  [OK] Using priority account: {selected_address}"
-                                    )
-                                    break
-                            if selected_account:
                                 break
-
-                        # If no priority account found, use any available account
-                        if not selected_account and available_accounts:
-                            selected_address, selected_account = available_accounts[0]
-                            self.log_email(
-                                f"  [INFO] No priority account available, using: {selected_address}"
-                            )
-
-                        # Create mail item
-                        mail = outlook.CreateItem(0)  # 0 = MailItem
-
-                        # Set email properties
-                        self.log_email(f"  Setting recipient to: {recipient}")
-                        mail.To = recipient
-                        mail.Subject = subject
-                        mail.Body = body
-
-                        # Set the sending account if we found one
                         if selected_account:
-                            mail.SendUsingAccount = selected_account
-                            self.log_email(
-                                f"  [OK] Configured to send from: {selected_address}"
-                            )
-                        else:
-                            self.log_email(
-                                "  [WARNING] No specific account found, using Outlook default"
-                            )
+                            break
 
-                        # Add attachment
-                        self.log_email(f"  Attaching PDF: {attachment_path}...")
-                        mail.Attachments.Add(str(attachment_path.absolute()))
-
-                        # VERIFICATION: Log the actual recipient before sending
-                        self.log_email("  [OK] Email configured:")
-                        self.log_email(f"     To: {mail.To}")
+                    # If no priority account found, use any available account
+                    if not selected_account and available_accounts:
+                        selected_address, selected_account = available_accounts[0]
                         self.log_email(
-                            f"     From: {selected_address if selected_address else '(default account)'}"
-                        )
-                        self.log_email(f"     Subject: {mail.Subject[:50]}...")
-
-                        # Send the email
-                        self.log_email("  [OUTLOOK] Sending via Outlook...")
-                        mail.Send()
-                        self.log_email(
-                            f"  [OK] Email sent successfully via Outlook from {selected_address if selected_address else 'default account'}!"
+                            f"  [INFO] No priority account available, using: {selected_address}"
                         )
 
-                    except Exception as outlook_ex:
-                        outlook_error = str(outlook_ex)
-                        self.log_email(f"  [WARNING] Outlook failed: {outlook_error}")
-                        self.log_email("  [FALLBACK] Attempting SMTP as fallback...")
+                    # Create mail item
+                    mail = outlook.CreateItem(0)  # 0 = MailItem
 
-                        # Fallback to SMTP
-                        import smtplib
-                        from email import encoders
-                        from email.mime.base import MIMEBase
-                        from email.mime.multipart import MIMEMultipart
-                        from email.mime.text import MIMEText
+                    # Set email properties
+                    self.log_email(f"  Setting recipient to: {recipient}")
+                    mail.To = recipient
+                    mail.Subject = subject
+                    mail.Body = body
 
-                        # Create message
+                    # Set the sending account if we found one
+                    if selected_account:
+                        mail.SendUsingAccount = selected_account
                         self.log_email(
-                            "  [SMTP] Creating SMTP message as final fallback..."
+                            f"  [OK] Configured to send from: {selected_address}"
                         )
-                        self.log_email(f"  Setting recipient to: {recipient}")
-                        msg = MIMEMultipart()
-                        msg["From"] = smtp_from
-                        msg["To"] = recipient
-                        msg["Subject"] = subject
-
-                        # Add body
-                        msg.attach(MIMEText(body, "plain"))
-
-                        # Add attachment
-                        self.log_email("  Attaching PDF...")
-                        with open(attachment_path, "rb") as f:
-                            part = MIMEBase("application", "octet-stream")
-                            part.set_payload(f.read())
-                            encoders.encode_base64(part)
-                            part.add_header(
-                                "Content-Disposition",
-                                f"attachment; filename={attachment_path.name}",
-                            )
-                            msg.attach(part)
-
-                        # Connect and send
+                    else:
                         self.log_email(
-                            f"  [SMTP] Connecting to SMTP: {smtp_server}:{smtp_port}..."
+                            "  [WARNING] No specific account found, using Outlook default"
                         )
-                        server = smtplib.SMTP(smtp_server, smtp_port)
 
-                        self.log_email("  [SMTP] Starting TLS...")
-                        server.starttls()
+                    # Add attachment
+                    self.log_email(f"  Attaching PDF: {attachment_path}...")
+                    mail.Attachments.Add(str(attachment_path.absolute()))
 
-                        self.log_email(f"  [SMTP] Logging in as: {smtp_username}...")
-                        server.login(smtp_username, smtp_password)
+                    # VERIFICATION: Log the actual recipient before sending
+                    self.log_email("  [OK] Email configured:")
+                    self.log_email(f"     To: {mail.To}")
+                    self.log_email(
+                        f"     From: {selected_address if selected_address else '(default account)'}"
+                    )
+                    self.log_email(f"     Subject: {mail.Subject[:50]}...")
 
-                        self.log_email(f"  [SMTP] Sending message from {smtp_from}...")
-                        server.send_message(msg)
+                    # Send the email
+                    self.log_email("  [OUTLOOK] Sending via Outlook...")
+                    mail.Send()
+                    self.log_email(
+                        f"  [OK] Email sent successfully via Outlook from {selected_address if selected_address else 'default account'}!"
+                    )
 
-                        self.log_email("  [SMTP] Closing connection...")
-                        server.quit()
+                except Exception as outlook_ex:
+                    outlook_error = str(outlook_ex)
+                    self.log_email(f"  [WARNING] Outlook failed: {outlook_error}")
+                    self.log_email("  [FALLBACK] Attempting SMTP as fallback...")
 
-                        self.log_email(
-                            f"  [OK] Email sent successfully via SMTP from {smtp_from} (used as fallback after Outlook failed)!"
-                        )
-                else:
-                    # Direct SMTP if Outlook disabled
+                    # Fallback to SMTP
                     import smtplib
                     from email import encoders
                     from email.mime.base import MIMEBase
                     from email.mime.multipart import MIMEMultipart
                     from email.mime.text import MIMEText
 
+                    # Create message
+                    self.log_email(
+                        "  [SMTP] Creating SMTP message as final fallback..."
+                    )
+                    self.log_email(f"  Setting recipient to: {recipient}")
                     msg = MIMEMultipart()
                     msg["From"] = smtp_from
                     msg["To"] = recipient
                     msg["Subject"] = subject
+
+                    # Add body
                     msg.attach(MIMEText(body, "plain"))
 
+                    # Add attachment
+                    self.log_email("  Attaching PDF...")
                     with open(attachment_path, "rb") as f:
                         part = MIMEBase("application", "octet-stream")
                         part.set_payload(f.read())
@@ -1369,12 +1343,27 @@ class EmailMixin:
                         )
                         msg.attach(part)
 
-                    server = smtplib.SMTP(smtp_server, smtp_port)
-                    server.starttls()
-                    server.login(smtp_username, smtp_password)
-                    server.send_message(msg)
-                    server.quit()
+                    # Connect and send
+                    self.log_email(
+                        f"  [SMTP] Connecting to SMTP: {smtp_server}:{smtp_port}..."
+                    )
+                    server = smtplib.SMTP(smtp_server, smtp_port, timeout=30)
+                    try:
+                        self.log_email("  [SMTP] Starting TLS...")
+                        server.starttls()
 
+                        self.log_email(f"  [SMTP] Logging in as: {smtp_username}...")
+                        server.login(smtp_username, smtp_password)
+
+                        self.log_email(f"  [SMTP] Sending message from {smtp_from}...")
+                        server.send_message(msg)
+                    finally:
+                        self.log_email("  [SMTP] Closing connection...")
+                        server.quit()
+
+                    self.log_email(
+                        f"  [OK] Email sent successfully via SMTP from {smtp_from} (used as fallback after Outlook failed)!"
+                    )
                 # Mark as sent in CSV (ONLY if not in test mode)
                 if not test_mode:
                     self.mark_as_sent_in_csv(company, person)
@@ -1388,18 +1377,23 @@ class EmailMixin:
                 sent_count += 1
                 self.log_email("  [OK] SUCCESS: Email sent!")
 
+            except smtplib.SMTPAuthenticationError as e:
+                failed_count += 1
+                self.log_email(f"  [ERROR] Authentication error — check username/password: {e}")
+                self.email_tracker.mark_failed(company, person)
+            except smtplib.SMTPException as e:
+                failed_count += 1
+                self.log_email(f"  [ERROR] SMTP error: {e}")
+                self.email_tracker.mark_failed(company, person)
+            except OSError as e:
+                failed_count += 1
+                self.log_email(f"  [ERROR] Network error connecting to SMTP server: {e}")
+                self.email_tracker.mark_failed(company, person)
             except Exception as e:
                 failed_count += 1
-                error_msg = str(e)
-                self.log_email(f"  [ERROR] FAILED: {error_msg}")
-                self.log_email(f"  Error type: {type(e).__name__}")
-
-                # Log more details for common errors
                 import traceback
-
+                self.log_email(f"  [ERROR] FAILED ({type(e).__name__}): {e}")
                 self.log_email(f"  Full error:\n{traceback.format_exc()}")
-
-                # Always update email tracker on failure
                 self.email_tracker.mark_failed(company, person)
 
             # Update progress
@@ -1429,7 +1423,7 @@ class EmailMixin:
 
             # Reload data to get latest sent status
             try:
-                self.df = pd.read_csv(DATA_FILE)
+                self.df = pd.read_csv(DATA_FILE, encoding="utf-8")
                 self.df.columns = self.df.columns.str.lower().str.strip()
             except Exception as e:
                 self.log_email(f"[WARNING] Could not reload CSV: {e}")
@@ -1438,7 +1432,7 @@ class EmailMixin:
             self.update_email_status_display()
 
             # Update statistics in header
-            if "reportsent" in self.df.columns:
+            if self.df is not None and "reportsent" in self.df.columns:
                 self.stats["emails_sent"] = self.df["reportsent"].sum()
             self.update_stats_display()
 
