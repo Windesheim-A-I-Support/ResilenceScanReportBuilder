@@ -124,7 +124,10 @@ function Get-InstalledRVersion($rscript) {
     if (-not $rscript) { return $null }
     try {
         $out = (& $rscript --version 2>&1) -join " "
-        if ($out -match "R version (\d+\.\d+\.\d+)") { return [version]$matches[1] }
+        # "Rscript --version" -> "R scripting front-end version X.Y.Z"
+        # "R --version"       -> "R version X.Y.Z"
+        # Match either format with the common "version X.Y.Z" suffix.
+        if ($out -match "version (\d+\.\d+\.\d+)") { return [version]$matches[1] }
     } catch {}
     return $null
 }
@@ -133,8 +136,9 @@ $rscriptBefore    = Find-Rscript
 $installedVersion = Get-InstalledRVersion $rscriptBefore
 $requiredVersion  = [version]$R_VERSION
 
-$needInstall  = $false
-$rWasUpgraded = $false
+$needInstall   = $false
+$rWasUpgraded  = $false
+$skipRPackages = $false
 
 if (-not $rscriptBefore) {
     Write-Log "R not found - will install $R_VERSION."
@@ -149,7 +153,20 @@ if (-not $rscriptBefore) {
     $needInstall  = $true
     $rWasUpgraded = $true
 } else {
-    Write-Log "R $installedVersion already meets requirement ($R_VERSION) - skipping install."
+    Write-Log "R $installedVersion meets requirement ($R_VERSION) - running pre-flight package check..."
+    # R is the right version - test whether packages are already loadable before
+    # attempting any installation.  If they are, we skip the entire install block.
+    $pfPkgList = ($R_PACKAGES | ForEach-Object { "'" + $_ + "'" }) -join ", "
+    $pfLibR    = $R_LIB.Replace('\', '/')
+    $pfScript  = "pkgs <- c($pfPkgList); .libPaths(c('$pfLibR', .libPaths())); bad <- pkgs[!sapply(pkgs, requireNamespace, quietly=TRUE)]; if(length(bad)==0) cat('OK') else cat('MISSING:', paste(bad, collapse=','))"
+    $pfOut     = (& $rscriptBefore --no-save -e $pfScript 2>&1) -join " "
+    if ($pfOut -match "^OK") {
+        Write-Log "Pre-flight: all $($R_PACKAGES.Count) packages installed and loadable - skipping package installation."
+        $skipRPackages = $true
+    } else {
+        Write-Log "Pre-flight: packages not all loadable ($pfOut) - will reinstall."
+        $skipRPackages = $false
+    }
 }
 
 if ($needInstall) {
@@ -368,6 +385,9 @@ if ($tlmgr) {
     }
 
     try {
+        # Self-update tlmgr first; an outdated tlmgr refuses to install packages.
+        Write-Log "  Updating tlmgr itself..."
+        & tlmgr update --self 2>&1 | ForEach-Object { Write-Log "  [tlmgr self] $_" }
         & tlmgr install @LATEX_PACKAGES 2>&1 | ForEach-Object { Write-Log "  [tlmgr] $_" }
         Write-Log "LaTeX packages installed."
     } catch {
@@ -405,7 +425,9 @@ if ($tlmgr) {
 
 # ---- R packages -------------------------------------------------------------
 $rscript = Find-Rscript
-if ($rscript) {
+if ($rscript -and $skipRPackages) {
+    Write-Log "Skipping R package installation - pre-flight confirmed all packages already loadable."
+} elseif ($rscript) {
     Write-Log "Installing R packages into $R_LIB (using $rscript)..."
 
     # If R was upgraded (or reinstalled), wipe the old r-library first.
@@ -429,15 +451,17 @@ if ($rscript) {
     # Fix permissions so SYSTEM (installer) can write and Users can read at runtime.
     # On upgrades the existing r-library may have stale ownership or inherited DENY
     # rules from Program Files -- break inheritance first, then replace grant entries.
-    Write-Log "Setting ACLs on R library..."
+    # Use well-known SIDs (S-1-5-*) instead of localised group names so this works
+    # on non-English Windows (e.g. Dutch "Beheerders" != "Administrators").
+    Write-Log "Setting ACLs on R library (using SIDs for locale-independence)..."
     $o1 = (icacls "$R_LIB" /inheritance:r /Q 2>&1) -join " "
-    Write-Log "  [icacls /inheritance:r] exit=$LASTEXITCODE  $o1"
-    $o2 = (icacls "$R_LIB" /grant:r "SYSTEM:(OI)(CI)F" /T /Q 2>&1) -join " "
-    Write-Log "  [icacls SYSTEM:F      ] exit=$LASTEXITCODE  $o2"
-    $o3 = (icacls "$R_LIB" /grant:r "BUILTIN\Administrators:(OI)(CI)F" /T /Q 2>&1) -join " "
-    Write-Log "  [icacls Admins:F      ] exit=$LASTEXITCODE  $o3"
-    $o4 = (icacls "$R_LIB" /grant:r "BUILTIN\Users:(OI)(CI)RX" /T /Q 2>&1) -join " "
-    Write-Log "  [icacls Users:RX      ] exit=$LASTEXITCODE  $o4"
+    Write-Log "  [icacls /inheritance:r          ] exit=$LASTEXITCODE  $o1"
+    $o2 = (icacls "$R_LIB" /grant:r "*S-1-5-18:(OI)(CI)F" /T /Q 2>&1) -join " "    # SYSTEM
+    Write-Log "  [icacls SYSTEM (S-1-5-18)       ] exit=$LASTEXITCODE  $o2"
+    $o3 = (icacls "$R_LIB" /grant:r "*S-1-5-32-544:(OI)(CI)F" /T /Q 2>&1) -join " " # Administrators
+    Write-Log "  [icacls Admins (S-1-5-32-544)   ] exit=$LASTEXITCODE  $o3"
+    $o4 = (icacls "$R_LIB" /grant:r "*S-1-5-32-545:(OI)(CI)RX" /T /Q 2>&1) -join " " # Users
+    Write-Log "  [icacls Users  (S-1-5-32-545)   ] exit=$LASTEXITCODE  $o4"
 
     # Verify the directory is actually writable before attempting install.
     $testFile    = Join-Path $R_LIB "_write_test_"

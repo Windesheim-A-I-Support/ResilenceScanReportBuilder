@@ -69,8 +69,10 @@ _install_r_cran() {
     apt-get install -y --no-install-recommends software-properties-common dirmngr
     wget -qO- https://cloud.r-project.org/bin/linux/ubuntu/marutter_pubkey.asc \
         | gpg --dearmor -o /usr/share/keyrings/cran.gpg
-    UBUNTU_CODENAME=$(. /etc/os-release && echo "$UBUNTU_CODENAME")
-    echo "deb [signed-by=/usr/share/keyrings/cran.gpg] https://cloud.r-project.org/bin/linux/ubuntu ${UBUNTU_CODENAME:-jammy}-cran40/" \
+    # UBUNTU_CODENAME is set by Ubuntu; Debian/Ubuntu 24.04+ use VERSION_CODENAME.
+    # Fall back through both before defaulting to "jammy".
+    CODENAME=$(. /etc/os-release && echo "${UBUNTU_CODENAME:-${VERSION_CODENAME:-jammy}}")
+    echo "deb [signed-by=/usr/share/keyrings/cran.gpg] https://cloud.r-project.org/bin/linux/ubuntu ${CODENAME}-cran40/" \
         > /etc/apt/sources.list.d/cran.list
     apt-get update -qq
     apt-get install -y --no-install-recommends r-base r-base-dev
@@ -206,13 +208,14 @@ if [ -n "$MISSING" ]; then
         SETUP_RESULT="FAIL"
     else
         log "R package retry succeeded -- all packages installed and loadable."
+        SETUP_RESULT="PASS"
     fi
 else
     log "R package verification: all packages installed and loadable."
+    SETUP_RESULT="PASS"
 fi
 
 # Ensure the R library is readable by all users
 chmod -R a+rX "$R_LIB"
 
-SETUP_RESULT="PASS"
 log "Dependency setup complete."
