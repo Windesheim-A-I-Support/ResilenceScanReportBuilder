@@ -381,9 +381,86 @@ jobs:
           name: release-${{ matrix.artifact }}
           path: dist/*
 
+  # ── Installer smoke test: run the Windows .exe and verify PASS ───────────────
+  # Plants a stale FAIL flag before running so we also verify that
+  # launch_setup.ps1 deletes stale flags before starting the task.
+  # setup_dependencies.ps1 detects ci_test_mode.flag and writes PASS instantly
+  # (skipping all downloads), so the full flow completes in ~30 seconds.
+  installer-smoke:
+    needs: [version-check, build]
+    if: needs.version-check.outputs.release == 'true'
+    runs-on: windows-latest
+    env:
+      APP_VERSION: ${{ needs.version-check.outputs.version }}
+
+    steps:
+      - name: Download Windows installer
+        uses: actions/download-artifact@v4
+        with:
+          name: release-windows
+          path: dist
+
+      - name: Create CI test flags
+        shell: powershell
+        run: |
+          $logDir = "C:\ProgramData\ResilienceScan"
+          New-Item -ItemType Directory -Force -Path $logDir | Out-Null
+          # Tells setup_dependencies.ps1 to write PASS immediately (no downloads)
+          Set-Content "$logDir\ci_test_mode.flag"   "CI"   -Encoding UTF8
+          # Stale FAIL flag — verifies launch_setup.ps1 clears it before polling
+          Set-Content "$logDir\setup_complete.flag" "FAIL" -Encoding UTF8
+          Write-Host "Test flags created in $logDir"
+
+      - name: Run installer silently
+        shell: powershell
+        run: |
+          $exe = Get-ChildItem dist -Filter "*-windows-setup.exe" | Select-Object -First 1
+          if (-not $exe) { Write-Error "Installer .exe not found in dist/"; exit 1 }
+          Write-Host "Running: $($exe.FullName) /S"
+          $proc = Start-Process $exe.FullName -ArgumentList "/S" -Wait -PassThru
+          Write-Host "Installer exit code: $($proc.ExitCode)"
+          if ($proc.ExitCode -ne 0) {
+            Get-Content "C:\ProgramData\ResilienceScan\setup.log" -ErrorAction SilentlyContinue
+            Write-Error "Installer failed with exit code $($proc.ExitCode)"
+            exit $proc.ExitCode
+          }
+
+      - name: Verify results
+        shell: powershell
+        run: |
+          $repoName = "ResilenceScanReportBuilder"
+          $appExe   = "$env:PROGRAMFILES\$repoName\$repoName.exe"
+          $flagFile = "C:\ProgramData\ResilienceScan\setup_complete.flag"
+
+          if (-not (Test-Path $appExe)) {
+            Write-Error "App exe not found: $appExe"
+            exit 1
+          }
+          Write-Host "OK: app exe found"
+
+          if (-not (Test-Path $flagFile)) {
+            Write-Error "setup_complete.flag missing — setup_dependencies.ps1 did not run"
+            exit 1
+          }
+          $result = (Get-Content $flagFile -Raw) -replace '\s', ''
+          Write-Host "setup_complete.flag: $result"
+          if ($result -ne "PASS") {
+            Get-Content "C:\ProgramData\ResilienceScan\setup.log" -ErrorAction SilentlyContinue
+            Write-Error "Expected PASS but got: $result"
+            exit 1
+          }
+          Write-Host "Installer smoke test PASSED"
+
+      - name: Upload setup log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer-smoke-log
+          path: C:\ProgramData\ResilienceScan\*.log
+
   # ── Create the GitHub Release and attach all artifacts ───────────────────────
   publish:
-    needs: [version-check, build]
+    needs: [version-check, build, installer-smoke]
     runs-on: ubuntu-latest
 
     steps:

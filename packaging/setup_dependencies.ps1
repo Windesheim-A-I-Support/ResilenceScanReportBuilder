@@ -87,6 +87,18 @@ Write-Log "Transcript : $TRANSCRIPT"
 Write-Log "PS version : $($PSVersionTable.PSVersion)"
 Write-Log "Running as : $([System.Security.Principal.WindowsIdentity]::GetCurrent().Name)"
 
+# ---- CI test mode -----------------------------------------------------------
+# When ci_test_mode.flag exists, skip all downloads and write PASS immediately.
+# Used by the installer-smoke CI job to verify the install+launch flow without
+# spending 20 minutes downloading R/Quarto/TinyTeX.
+if (Test-Path "$LOG_DIR\ci_test_mode.flag") {
+    Write-Log "CI test mode active - skipping downloads, writing PASS flag."
+    Remove-Item "$LOG_DIR\setup_running.flag" -Force -ErrorAction SilentlyContinue
+    Stop-Transcript | Out-Null
+    "PASS" | Set-Content "$LOG_DIR\setup_complete.flag" -Encoding UTF8
+    exit 0
+}
+
 # ---- Helper: find Rscript.exe (PS 5.1 compatible -- no ?. operator) ---------
 function Find-Rscript {
     # Prefer the target R version explicitly - this ensures that after a
