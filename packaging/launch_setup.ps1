@@ -64,10 +64,21 @@ $flagFile = "$logDir\setup_complete.flag"
 
 # Remove any stale flag from a previous run before starting the task.
 # Without this, a previous FAIL flag is found instantly on the next run.
+# Use a robust removal: try Remove-Item; if the file persists (e.g., SYSTEM
+# owner with no delete permission), overwrite with a sentinel so the polling
+# loop cannot mistake it for a completed run.
 if (Test-Path $flagFile) {
     Remove-Item $flagFile -Force -ErrorAction SilentlyContinue
-    "[LAUNCHER] Removed stale setup_complete.flag from previous run." |
-        Add-Content $logFile -Encoding UTF8
+    if (Test-Path $flagFile) {
+        # Removal failed (permission / lock) -- overwrite with STALE marker so
+        # the polling loop does not treat it as a valid completion signal.
+        "[LAUNCHER] WARNING: Could not delete stale flag -- overwriting with STALE marker." |
+            Add-Content $logFile -Encoding UTF8
+        "STALE" | Set-Content $flagFile -Encoding UTF8
+    } else {
+        "[LAUNCHER] Removed stale setup_complete.flag from previous run." |
+            Add-Content $logFile -Encoding UTF8
+    }
 }
 
 Register-ScheduledTask -TaskName "ResilienceScanSetup" `
@@ -89,7 +100,12 @@ $timeoutSecs = 7200   # 2 hours
 $pollSecs    = 5
 $elapsed     = 0
 
-while (-not (Test-Path $flagFile)) {
+:waitLoop while ($true) {
+    if (Test-Path $flagFile) {
+        $flagContent = (Get-Content $flagFile -Raw -ErrorAction SilentlyContinue) -replace '\s', ''
+        # Skip STALE markers written by our own cleanup above; wait for a real result.
+        if ($flagContent -match "PASS|FAIL") { break waitLoop }
+    }
     Start-Sleep -Seconds $pollSecs
     $elapsed += $pollSecs
     if ($elapsed % 60 -eq 0) {
@@ -103,8 +119,8 @@ while (-not (Test-Path $flagFile)) {
     }
 }
 
-# Read the result written by setup_dependencies.ps1
-$flagContent = (Get-Content $flagFile -Raw -ErrorAction SilentlyContinue) -replace '\s',''
+# Flag content already read inside the loop above
+$flagContent = (Get-Content $flagFile -Raw -ErrorAction SilentlyContinue) -replace '\s', ''
 "[LAUNCHER $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Setup finished with result: $flagContent" |
     Add-Content $logFile -Encoding UTF8
 

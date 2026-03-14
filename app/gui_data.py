@@ -62,17 +62,24 @@ class DataMixin:
 
         ttk.Button(
             actions_frame,
+            text="\U0001f4e6 Repair R Packages",
+            command=self._install_r_packages_now,
+            width=22,
+        ).grid(row=1, column=1, padx=5, pady=5)
+
+        ttk.Button(
+            actions_frame,
             text="\U0001fa9f Install Dependencies (Windows)",
             command=self.install_windows_dependencies,
             width=25,
-        ).grid(row=1, column=1, columnspan=2, padx=5, pady=5)
+        ).grid(row=2, column=0, columnspan=2, padx=5, pady=5)
 
         ttk.Button(
             actions_frame,
             text="\U0001f427 Install Dependencies (Linux)",
             command=self.install_linux_dependencies,
             width=25,
-        ).grid(row=1, column=3, padx=5, pady=5)
+        ).grid(row=2, column=2, columnspan=2, padx=5, pady=5)
 
         # Statistics overview
         stats_frame = ttk.LabelFrame(dashboard, text="Statistics Overview", padding=10)

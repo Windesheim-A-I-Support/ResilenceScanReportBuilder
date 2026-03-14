@@ -31,6 +31,8 @@ New-Item -ItemType Directory -Force -Path $LOG_DIR | Out-Null
 Start-Transcript -Path $TRANSCRIPT -Append -Force | Out-Null
 
 # Global trap: any terminating error writes to setup_error.log + setup.log
+# CRITICAL: always write setup_complete.flag=FAIL before exiting so that
+# launch_setup.ps1 doesn't poll for 2 hours waiting for a flag that never comes.
 trap {
     $errMsg  = $_.Exception.Message
     $errStk  = $_.ScriptStackTrace
@@ -41,6 +43,9 @@ trap {
     Add-Content -Path $LOG_FILE  -Value $fatLine           -Encoding UTF8
     Add-Content -Path $LOG_FILE  -Value $errStk            -Encoding UTF8
     Stop-Transcript | Out-Null
+    # Write FAIL flag so launch_setup.ps1 / app do not wait forever
+    "FAIL" | Set-Content "$LOG_DIR\setup_complete.flag" -Encoding UTF8
+    Remove-Item "$LOG_DIR\setup_running.flag" -ErrorAction SilentlyContinue
     exit 1
 }
 
@@ -166,17 +171,27 @@ if (-not $rscriptBefore) {
     $rWasUpgraded = $true
 } else {
     Write-Log "R $installedVersion meets requirement ($R_VERSION) - running pre-flight package check..."
-    # R is the right version - test whether packages are already loadable before
-    # attempting any installation.  If they are, we skip the entire install block.
+    # R is the right version - check whether packages are already present in the
+    # BUNDLED r-library specifically (not the user's personal R library).
+    # We intentionally exclude the user's library so that the bundled r-library is
+    # always self-contained: if a user upgrades R or moves to a different machine,
+    # the app works without relying on whatever the user happened to have installed.
     $pfPkgList = ($R_PACKAGES | ForEach-Object { "'" + $_ + "'" }) -join ", "
     $pfLibR    = $R_LIB.Replace('\', '/')
-    $pfScript  = "pkgs <- c($pfPkgList); .libPaths(c('$pfLibR', .libPaths())); bad <- pkgs[!sapply(pkgs, requireNamespace, quietly=TRUE)]; if(length(bad)==0) cat('OK') else cat('MISSING:', paste(bad, collapse=','))"
-    $pfOut     = (& $rscriptBefore --no-save -e $pfScript 2>&1) -join " "
-    if ($pfOut -match "^OK") {
-        Write-Log "Pre-flight: all $($R_PACKAGES.Count) packages installed and loadable - skipping package installation."
-        $skipRPackages = $true
+    if (Test-Path $R_LIB) {
+        # Check ONLY the bundled library -- .libPaths() is set to just $R_LIB so
+        # packages in the user's global library are not counted.
+        $pfScript = "pkgs <- c($pfPkgList); .libPaths('$pfLibR'); bad <- pkgs[!sapply(pkgs, requireNamespace, quietly=TRUE)]; if(length(bad)==0) cat('OK') else cat('MISSING:', paste(bad, collapse=','))"
+        $pfOut    = (& $rscriptBefore --no-save -e $pfScript 2>&1) -join " "
+        if ($pfOut -match "^OK") {
+            Write-Log "Pre-flight: all $($R_PACKAGES.Count) packages present in bundled r-library - skipping installation."
+            $skipRPackages = $true
+        } else {
+            Write-Log "Pre-flight: r-library incomplete ($pfOut) - will install missing packages."
+            $skipRPackages = $false
+        }
     } else {
-        Write-Log "Pre-flight: packages not all loadable ($pfOut) - will reinstall."
+        Write-Log "Pre-flight: bundled r-library does not exist yet - will install all packages."
         $skipRPackages = $false
     }
 }
@@ -528,14 +543,23 @@ if ($rscript -and $skipRPackages) {
         } else {
             Write-Log "WARNING: Some packages not loadable after bulk install - retrying individually: $verifyOut"
             Add-Content -Path $ERROR_LOG -Value "[R packages verify] $verifyOut" -Encoding UTF8
-            # Retry each missing package one at a time with binary type
+            # Retry each missing package one at a time.
+            # First try binary (fastest); if still missing, fall back to source so
+            # that packages unavailable as pre-compiled binaries for this R version
+            # can still be installed via compilation.
             $missingCsv = ($verifyOut -replace "MISSING:\s*", "").Trim()
             foreach ($pkg in ($missingCsv -split ",\s*")) {
                 $pkg = $pkg.Trim()
-                if ($pkg) {
-                    Write-Log "  Retrying: $pkg"
-                    & $rscript -e "install.packages('$pkg', lib='$R_LIB_R', repos='https://cloud.r-project.org', type='binary')" 2>&1 |
-                        ForEach-Object { Write-Log "  [R retry] $_" }
+                if (-not $pkg) { continue }
+                Write-Log "  Retrying (binary): $pkg"
+                & $rscript -e "install.packages('$pkg', lib='$R_LIB_R', repos='https://cloud.r-project.org', type='binary')" 2>&1 |
+                    ForEach-Object { Write-Log "  [R retry-bin] $_" }
+                # Check if the binary retry succeeded
+                $binChk = (& $rscript --no-save -e ".libPaths(c('$R_LIB_R', .libPaths())); cat(if(requireNamespace('$pkg', quietly=TRUE)) 'OK' else 'FAIL')" 2>&1) -join ""
+                if ($binChk -notmatch "OK") {
+                    Write-Log "  Binary unavailable for $pkg (R $installedVersion) - trying source..."
+                    & $rscript -e "install.packages('$pkg', lib='$R_LIB_R', repos='https://cloud.r-project.org')" 2>&1 |
+                        ForEach-Object { Write-Log "  [R retry-src] $_" }
                 }
             }
             # Final check after retry

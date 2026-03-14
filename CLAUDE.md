@@ -176,11 +176,12 @@ emails via Outlook COM (Windows) or SMTP fallback (Office365)
 | M42 | Installer: `launch_setup.ps1` deletes stale `setup_complete.flag` before starting task; NSIS checks exit code and shows error dialog on FAIL | v0.21.42 |
 | M43 | Installer smoke test: `installer-smoke` CI job runs the Windows `.exe` silently with a ci_test_mode stub + stale FAIL flag, verifies PASS; gates `publish` | v0.21.43 |
 | M44 | Installer smoke test hardening: file checks (11 files), flag-state checks (PASS/running/error.log), log-content checks (6 patterns + ERROR/FATAL forbidden), reinstall idempotency run | v0.21.44 |
+| M45 | Installer robustness + in-app R repair: pre-flight checks only bundled r-library; trap writes FAIL flag; binary→source fallback in retry; stale-flag STALE sentinel; `_install_r_packages_now()` auto-repair on startup; "Repair R Packages" dashboard button | v0.21.45 |
 
-**Current version: v0.21.44 — 210 tests, ruff clean**
+**Current version: v0.21.45 — 238 tests, ruff clean**
 
 ---
 
 ## Active milestones
 
-All milestones M1–M44 complete. No active milestones.
+All milestones M1–M45 complete. No active milestones.

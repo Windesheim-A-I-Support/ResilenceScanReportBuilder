@@ -4,6 +4,7 @@ SettingsMixin — startup guard, system check, and dependency-install methods.
 
 import subprocess
 import sys
+import threading
 import tkinter as tk
 from datetime import datetime
 from tkinter import messagebox
@@ -70,34 +71,24 @@ class SettingsMixin:
                     "You can continue, but generating PDFs will fail.",
                 )
 
-        # Separately warn if R packages are missing (non-blocking, but important).
+        # Separately handle missing R packages — attempt automatic repair rather
+        # than just warning the user.
         if not result.get("r_packages", {}).get("ok"):
-            log_hint = (
-                r"C:\ProgramData\ResilienceScan\setup.log"
-                if sys.platform == "win32"
-                else "/var/log/resilencescan-setup.log"
-            )
             if install_status == "running":
-                # Already covered by the "Setup In Progress" dialog above (or no
-                # critical components were missing).  Just update the status bar.
+                # Setup still in progress — packages are being installed right now.
+                # The polling loop will notify when done; don't interfere.
                 pass
-            elif install_status == "complete_fail":
-                messagebox.showwarning(
-                    "R Packages Missing",
-                    "Required R packages failed to install.\n\n"
-                    f"Check the setup log:\n{log_hint}\n\n"
-                    "Report generation will fail until packages are available.",
-                )
             else:
-                messagebox.showwarning(
-                    "R Packages Not Ready",
-                    "Required R packages are not yet installed.\n\n"
-                    "The background setup may still be running (allow 5-20 minutes\n"
-                    "after installation) or it may have failed.\n\n"
-                    f"Check the setup log:\n{log_hint}\n\n"
-                    "Report generation will fail until packages are available.\n"
-                    "Use the System Check button to re-check.",
+                # Setup is complete (pass/fail) or unknown (dev mode / prior install).
+                # Auto-attempt package installation so the user doesn't have to
+                # re-run the full 15-minute installer just for missing R packages.
+                self.log(
+                    "[INFO] R packages missing at startup — attempting automatic repair..."
                 )
+                self.status_label.config(
+                    text="Installing missing R packages... (may take a few minutes)"
+                )
+                self.root.after(500, lambda: self._install_r_packages_now(silent=True))
 
         # If setup is still running, show a status bar indicator and start polling.
         if install_status == "running":
@@ -214,6 +205,135 @@ class SettingsMixin:
     # ------------------------------------------------------------------
     # Dependency installation
     # ------------------------------------------------------------------
+
+    def _install_r_packages_now(self, silent: bool = False) -> None:
+        """Install missing R packages in a background thread.
+
+        Installs to R's default user library (no explicit lib= path) so this
+        works even when the frozen app's r-library is in a read-only location.
+        R_LIBS_USER is always included in .libPaths() by R at runtime, so
+        packages installed here are found by both the system check and by
+        quarto render.
+
+        Args:
+            silent: if True, suppress the "already installed" success dialog.
+        """
+        from gui_system_check import _R_PACKAGES, _find_rscript, _refresh_windows_path
+
+        _refresh_windows_path()
+        rscript = _find_rscript()
+        if not rscript:
+            if not silent:
+                messagebox.showerror(
+                    "R Not Found",
+                    "Cannot find Rscript.\n\n"
+                    "R must be installed before packages can be installed.\n"
+                    "Re-run the installer or install R from https://cran.r-project.org",
+                )
+            self.log("[ERROR] R package repair failed: Rscript not found on PATH.")
+            self.status_label.config(text="Ready")
+            return
+
+        pkg_list = ", ".join(f"'{p}'" for p in _R_PACKAGES)
+        # Install to user's writable R library (default — no lib= argument).
+        # Binary packages are fastest; fall back to source if binary is
+        # unavailable for the installed R version.
+        script = (
+            f"pkgs <- c({pkg_list}); "
+            f"bad <- pkgs[!sapply(pkgs, requireNamespace, quietly=TRUE)]; "
+            f"if (length(bad) == 0) {{ cat('ALREADY_OK\\n'); quit(status=0) }}; "
+            f"cat('Installing', length(bad), 'package(s):', paste(bad, collapse=', '), '\\n'); "
+            f"for (p in bad) {{ "
+            f"  cat('  ->', p, '\\n'); "
+            f"  ok <- tryCatch({{ "
+            f"    install.packages(p, repos='https://cloud.r-project.org', type='binary', quiet=FALSE); "
+            f"    requireNamespace(p, quietly=TRUE) "
+            f"  }}, error=function(e) FALSE); "
+            f"  if (!ok) {{ "
+            f"    cat('  binary unavailable, trying source:', p, '\\n'); "
+            f"    tryCatch( "
+            f"      install.packages(p, repos='https://cloud.r-project.org', quiet=FALSE), "
+            f"      error=function(e) cat('  ERROR:', conditionMessage(e), '\\n') "
+            f"    ) "
+            f"  }} "
+            f"}}; "
+            f"still_bad <- bad[!sapply(bad, requireNamespace, quietly=TRUE)]; "
+            f"if (length(still_bad) == 0) cat('SUCCESS\\n') "
+            f"else cat('MISSING:', paste(still_bad, collapse=', '), '\\n')"
+        )
+
+        self.log(f"[INFO] Running R package install via: {rscript}")
+        self.status_label.config(
+            text="Installing R packages... (may take a few minutes)"
+        )
+
+        def _run() -> None:
+            try:
+                proc = subprocess.run(
+                    [rscript, "--no-save", "-e", script],
+                    capture_output=True,
+                    text=True,
+                    timeout=600,
+                )
+                output = (proc.stdout + proc.stderr).strip()
+                self.root.after(0, lambda: self._r_install_done(output, silent))
+            except subprocess.TimeoutExpired:
+                self.root.after(0, lambda: self._r_install_done("TIMEOUT", silent))
+            except Exception as exc:  # noqa: BLE001
+                msg = f"ERROR: {exc}"
+                self.root.after(0, lambda m=msg: self._r_install_done(m, silent))
+
+        threading.Thread(target=_run, daemon=True).start()
+
+    def _r_install_done(self, output: str, silent: bool) -> None:
+        """Called on the main thread when R package installation finishes."""
+        self.status_label.config(text="Ready")
+        for line in output.splitlines():
+            if line.strip():
+                self.log(f"  [R] {line}")
+
+        if "ALREADY_OK" in output:
+            self.log("[OK] All R packages were already installed.")
+            if not silent:
+                messagebox.showinfo(
+                    "Packages Ready",
+                    "All required R packages are already installed.",
+                )
+        elif "SUCCESS" in output:
+            self.log("[OK] R packages installed successfully.")
+            messagebox.showinfo(
+                "R Packages Installed",
+                "All required R packages were installed successfully.\n\n"
+                "You can now generate reports.",
+            )
+        elif "MISSING:" in output:
+            missing = output.split("MISSING:")[-1].strip()
+            self.log(f"[WARN] Some packages could not be installed: {missing}")
+            messagebox.showwarning(
+                "Some R Packages Failed",
+                f"The following packages could not be installed:\n\n{missing}\n\n"
+                "Possible causes:\n"
+                "  \u2022 No internet connection\n"
+                "  \u2022 Package not available as binary for your R version\n"
+                "  \u2022 R version too old or too new\n\n"
+                "Use the System Check button to retry or check the Logs tab.",
+            )
+        elif "TIMEOUT" in output:
+            self.log("[WARN] R package install timed out after 10 minutes.")
+            messagebox.showwarning(
+                "Installation Timeout",
+                "R package installation timed out after 10 minutes.\n\n"
+                "Check your internet connection and use System Check to retry.",
+            )
+        else:
+            self.log(
+                f"[WARN] R install finished with unexpected output: {output[:300]}"
+            )
+            messagebox.showwarning(
+                "Installation Result Unclear",
+                "R package installation finished but the result is uncertain.\n\n"
+                "Use the System Check button to verify the current state.",
+            )
 
     def install_windows_dependencies(self):
         """Install dependencies on Windows - runs installation/install_dependencies_auto.py"""
