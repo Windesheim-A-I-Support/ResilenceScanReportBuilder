@@ -493,11 +493,11 @@ jobs:
           Write-Host "Flag state OK."
 
       - name: Check log content
-        shell: powershell
+        shell: pwsh
         run: |
           $logFile = "$env:LOG_DIR\setup.log"
           if (-not (Test-Path $logFile)) {
-            Write-Error "setup.log not found — launch_setup.ps1 did not run"
+            Write-Error "setup.log not found -- launch_setup.ps1 did not run"
             exit 1
           }
           $log  = Get-Content $logFile -Raw
