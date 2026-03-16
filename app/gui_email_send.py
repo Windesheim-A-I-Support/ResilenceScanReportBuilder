@@ -724,7 +724,9 @@ class EmailSendMixin:
                     self.log_email(
                         f"  [SMTP] Connecting to SMTP: {smtp_server}:{smtp_port}..."
                     )
-                    server = smtplib.SMTP(smtp_server, smtp_port, timeout=SMTP_TIMEOUT_SECONDS)
+                    server = smtplib.SMTP(
+                        smtp_server, smtp_port, timeout=SMTP_TIMEOUT_SECONDS
+                    )
                     try:
                         self.log_email("  [SMTP] Starting TLS...")
                         server.starttls()

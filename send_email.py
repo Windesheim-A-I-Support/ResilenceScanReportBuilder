@@ -197,7 +197,9 @@ def send_emails():
                     msg.attach(part)
 
                 # Send via SMTP
-                server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT, timeout=SMTP_TIMEOUT_SECONDS)
+                server = smtplib.SMTP(
+                    SMTP_SERVER, SMTP_PORT, timeout=SMTP_TIMEOUT_SECONDS
+                )
                 server.starttls()
                 server.login(SMTP_USERNAME, SMTP_PASSWORD)
                 server.send_message(msg)
