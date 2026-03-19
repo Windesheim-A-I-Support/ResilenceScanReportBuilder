@@ -149,19 +149,19 @@ def _read_excel(path: Path) -> pd.DataFrame:
     """
     if _is_spreadsheetml(path):
         return _read_spreadsheetml(path)
-    xl = pd.ExcelFile(path)
-    sheet = "MasterData" if "MasterData" in xl.sheet_names else xl.sheet_names[0]
+    with pd.ExcelFile(path) as xl:
+        sheet = "MasterData" if "MasterData" in xl.sheet_names else xl.sheet_names[0]
     skip = _header_skiprows(path, sheet)
     return pd.read_excel(path, sheet_name=sheet, skiprows=skip)
 
 
 def _read_ods(path: Path) -> pd.DataFrame:
     """Read an ODS file using the odf engine, auto-detecting the header row."""
-    xl = pd.ExcelFile(path, engine="odf")
-    sheet = "MasterData" if "MasterData" in xl.sheet_names else xl.sheet_names[0]
-    raw = xl.parse(sheet, header=None, nrows=10)
-    skip = _find_header_row(raw)
-    return xl.parse(sheet, skiprows=skip)
+    with pd.ExcelFile(path, engine="odf") as xl:
+        sheet = "MasterData" if "MasterData" in xl.sheet_names else xl.sheet_names[0]
+        raw = xl.parse(sheet, header=None, nrows=10)
+        skip = _find_header_row(raw)
+        return xl.parse(sheet, skiprows=skip)
 
 
 def _read_xml(path: Path) -> pd.DataFrame:

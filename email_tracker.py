@@ -13,6 +13,7 @@ Called by the GUI via:
 """
 
 import json
+import threading
 from datetime import datetime
 
 from utils.path_utils import get_user_base_dir
@@ -44,6 +45,7 @@ class EmailTracker:
 
     def __init__(self) -> None:
         self._recipients: dict[str, dict] = {}
+        self._lock = threading.Lock()
         self._load()
 
     # ------------------------------------------------------------------ I/O
@@ -83,6 +85,8 @@ class EmailTracker:
 
         imported = 0
         skipped = 0
+        new_entries: dict[str, dict] = {}
+        updated_emails: dict[str, str] = {}
 
         for _, row in df.iterrows():
             company = str(row.get("company_name", "")).strip()
@@ -97,14 +101,13 @@ class EmailTracker:
 
             k = _key(company, person)
             if k in self._recipients:
-                # Update blank email if we now have one
                 if not self._recipients[k].get("email") and email:
-                    self._recipients[k]["email"] = email
+                    updated_emails[k] = email
                 skipped += 1
                 continue
 
             is_sent = bool(row.get("reportsent", False))
-            self._recipients[k] = {
+            new_entries[k] = {
                 "key": k,
                 "company": company,
                 "person": person,
@@ -114,53 +117,65 @@ class EmailTracker:
             }
             imported += 1
 
-        self._save()
+        with self._lock:
+            for k, email in updated_emails.items():
+                if k in self._recipients:
+                    self._recipients[k]["email"] = email
+            self._recipients.update(new_entries)
+            self._save()
         return imported, skipped
 
     def get_statistics(self) -> dict:
         """Return aggregate send statistics."""
-        total = len(self._recipients)
-        sent = sum(1 for r in self._recipients.values() if r["status"] == "sent")
-        failed = sum(1 for r in self._recipients.values() if r["status"] == "failed")
+        with self._lock:
+            total = len(self._recipients)
+            sent = sum(1 for r in self._recipients.values() if r["status"] == "sent")
+            failed = sum(
+                1 for r in self._recipients.values() if r["status"] == "failed"
+            )
         pending = total - sent - failed
         return {"total": total, "sent": sent, "pending": pending, "failed": failed}
 
     def mark_sent(self, company: str, person: str) -> None:
         """Mark a recipient as successfully sent."""
         k = _key(company, person)
-        entry = self._recipients.get(k) or {
-            "key": k,
-            "company": company.strip(),
-            "person": person.strip(),
-            "email": "",
-        }
-        entry["status"] = "sent"
-        entry["sent_date"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        self._recipients[k] = entry
-        self._save()
+        with self._lock:
+            entry = self._recipients.get(k) or {
+                "key": k,
+                "company": company.strip(),
+                "person": person.strip(),
+                "email": "",
+            }
+            entry["status"] = "sent"
+            entry["sent_date"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            self._recipients[k] = entry
+            self._save()
 
     def mark_failed(self, company: str, person: str) -> None:
         """Mark a recipient as failed."""
         k = _key(company, person)
-        entry = self._recipients.get(k) or {
-            "key": k,
-            "company": company.strip(),
-            "person": person.strip(),
-            "email": "",
-            "sent_date": None,
-        }
-        entry["status"] = "failed"
-        self._recipients[k] = entry
-        self._save()
+        with self._lock:
+            entry = self._recipients.get(k) or {
+                "key": k,
+                "company": company.strip(),
+                "person": person.strip(),
+                "email": "",
+                "sent_date": None,
+            }
+            entry["status"] = "failed"
+            self._recipients[k] = entry
+            self._save()
 
     def mark_pending(self, company: str, person: str) -> None:
         """Reset a recipient to pending."""
         k = _key(company, person)
-        if k in self._recipients:
-            self._recipients[k]["status"] = "pending"
-            self._recipients[k]["sent_date"] = None
-            self._save()
+        with self._lock:
+            if k in self._recipients:
+                self._recipients[k]["status"] = "pending"
+                self._recipients[k]["sent_date"] = None
+                self._save()
 
     def get_all(self) -> list[dict]:
         """Return all recipients as a list (for UI population)."""
-        return list(self._recipients.values())
+        with self._lock:
+            return list(self._recipients.values())

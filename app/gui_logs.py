@@ -12,6 +12,8 @@ from tkinter import filedialog, messagebox, scrolledtext, ttk
 
 from app.app_paths import LOG_FILE
 
+_LOG_LOCK = threading.Lock()
+
 
 class LogsMixin:
     """Mixin: system-log tab, log(), log_gen(), log_email(), and log controls."""
@@ -59,12 +61,13 @@ class LogsMixin:
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         log_message = f"[{timestamp}] {message}\n"
 
-        # Write to file immediately (thread-safe)
-        try:
-            with open(LOG_FILE, "a", encoding="utf-8") as f:
-                f.write(log_message)
-        except OSError as e:
-            print(f"[gui_logs] Log write failed: {e}", file=sys.stderr)
+        # Write to file with lock — multiple threads may call log() concurrently
+        with _LOG_LOCK:
+            try:
+                with open(LOG_FILE, "a", encoding="utf-8") as f:
+                    f.write(log_message)
+            except OSError as e:
+                print(f"[gui_logs] Log write failed: {e}", file=sys.stderr)
 
         def _update():
             self.system_log.insert(tk.END, log_message)

@@ -738,7 +738,10 @@ class EmailSendMixin:
                         server.send_message(msg)
                     finally:
                         self.log_email("  [SMTP] Closing connection...")
-                        server.quit()
+                        try:
+                            server.quit()
+                        except Exception:
+                            server.close()
 
                     self.log_email(
                         f"  [OK] Email sent successfully via SMTP from {smtp_from} (used as fallback after Outlook failed)!"
