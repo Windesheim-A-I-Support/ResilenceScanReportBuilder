@@ -30,6 +30,11 @@ from app.gui_logs import LogsMixin  # noqa: E402
 from app.gui_settings import SettingsMixin  # noqa: E402
 from email_tracker import EmailTracker  # noqa: E402
 
+try:
+    import sv_ttk  # Sun Valley theme — modern Windows 11 aesthetic
+except ImportError:
+    sv_ttk = None  # type: ignore[assignment]
+
 
 class ResilienceScanGUI(
     DataMixin, GenerationMixin, EmailMixin, SettingsMixin, LogsMixin
@@ -129,13 +134,13 @@ class ResilienceScanGUI(
     def create_header(self, parent):
         """Create application header"""
         header_frame = ttk.Frame(parent)
-        header_frame.grid(row=0, column=0, sticky=(tk.W, tk.E), pady=(0, 10))
+        header_frame.grid(row=0, column=0, sticky=(tk.W, tk.E), pady=(0, 6))
 
-        # Logo/Title
+        # Title
         title_label = ttk.Label(
             header_frame,
-            text=" ResilienceScan Control Center",
-            font=("Arial", 20, "bold"),
+            text="ResilienceScan Control Center",
+            font=("Segoe UI", 18, "bold"),
         )
         title_label.grid(row=0, column=0, sticky=tk.W)
 
@@ -144,53 +149,59 @@ class ResilienceScanGUI(
         subtitle_label = ttk.Label(
             header_frame,
             text=f"Supply Chain Resilience Assessment Management System  \u2022  v{_current_version()}",
-            font=("Arial", 10),
+            font=("Segoe UI", 9),
         )
         subtitle_label.grid(row=1, column=0, sticky=tk.W)
 
-        # Quick stats
+        # Quick stats — card-style tiles
         stats_frame = ttk.Frame(header_frame)
-        stats_frame.grid(row=0, column=1, rowspan=2, sticky=tk.E, padx=20)
+        stats_frame.grid(row=0, column=1, rowspan=2, sticky=tk.E, padx=(20, 0))
 
         self.stats_labels = {}
         stats_items = [
-            ("respondents", "Respondents", "0"),
-            ("companies", "Companies", "0"),
-            ("reports", "Reports", "0"),
-            ("emails", "Emails", "0"),
+            ("respondents", "Respondents"),
+            ("companies", "Companies"),
+            ("reports", "Reports"),
+            ("emails", "Emails"),
         ]
 
-        for idx, (key, label, value) in enumerate(stats_items):
-            frame = ttk.Frame(stats_frame)
-            frame.grid(row=0, column=idx, padx=10)
-
-            ttk.Label(frame, text=label, font=("Arial", 8)).pack()
+        for idx, (key, label) in enumerate(stats_items):
+            card = ttk.LabelFrame(stats_frame, text=label, padding=(10, 4))
+            card.grid(row=0, column=idx, padx=4)
             self.stats_labels[key] = ttk.Label(
-                frame, text=value, font=("Arial", 14, "bold"), foreground="#0277BD"
+                card, text="0", font=("Segoe UI", 14, "bold")
             )
             self.stats_labels[key].pack()
 
         header_frame.columnconfigure(1, weight=1)
 
+        # Separator below header
+        ttk.Separator(parent, orient=tk.HORIZONTAL).grid(
+            row=0, column=0, sticky=(tk.W, tk.E), pady=(60, 0)
+        )
+
     def create_status_bar(self, parent):
         """Create status bar at bottom"""
-        status_frame = ttk.Frame(parent, relief=tk.SUNKEN)
-        status_frame.grid(row=2, column=0, sticky=(tk.W, tk.E))
+        ttk.Separator(parent, orient=tk.HORIZONTAL).grid(
+            row=2, column=0, sticky=(tk.W, tk.E), pady=(4, 0)
+        )
+        status_frame = ttk.Frame(parent)
+        status_frame.grid(row=3, column=0, sticky=(tk.W, tk.E), pady=(2, 0))
 
-        self.status_label = ttk.Label(status_frame, text="Ready", font=("Arial", 9))
+        self.status_label = ttk.Label(status_frame, text="Ready", font=("Segoe UI", 9))
         self.status_label.grid(row=0, column=0, sticky=tk.W, padx=5)
 
         # Update notification label — hidden until an update is found
         self._update_label = tk.Label(
             status_frame,
             text="",
-            font=("Arial", 9),
+            font=("Segoe UI", 9),
             fg="#0066cc",
             cursor="hand2",
         )
         self._update_label.grid(row=0, column=1, sticky=tk.W, padx=10)
 
-        self.status_time_label = ttk.Label(status_frame, text="", font=("Arial", 9))
+        self.status_time_label = ttk.Label(status_frame, text="", font=("Segoe UI", 9))
         self.status_time_label.grid(row=0, column=2, sticky=tk.E, padx=5)
 
         status_frame.columnconfigure(2, weight=1)
@@ -247,6 +258,8 @@ Hogeschool Windesheim
 def main():
     """Main entry point"""
     root = tk.Tk()
+    if sv_ttk is not None:
+        sv_ttk.set_theme("light")
     ResilienceScanGUI(root)
     root.mainloop()
 
