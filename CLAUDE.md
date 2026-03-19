@@ -37,15 +37,23 @@ Bump `version` in `pyproject.toml` and push to `main`. CI detects no git tag `v<
 
 ## Architecture
 
-`app/main.py` is the entry point (Tkinter GUI + PyInstaller target, 255 lines). It inherits from five mixins:
+`app/main.py` is the entry point (Tkinter GUI + PyInstaller target). It inherits from five mixins:
 
 | Mixin | File | Responsibility |
 |---|---|---|
-| `DataMixin` | `app/gui_data.py` | Data tab, CSV load/convert, quality analysis |
+| `DataMixin(QualityMixin)` | `app/gui_data.py` | Data tab, CSV load/convert, quality analysis display |
 | `GenerationMixin` | `app/gui_generate.py` | Generation tab, PDF render, thread-safe cancel |
-| `EmailMixin` | `app/gui_email.py` | Email tabs, SMTP send, template editor |
+| `EmailMixin(EmailTemplateMixin, EmailSendMixin)` | `app/gui_email.py` | Email tabs, tracker display, mark-sent/pending |
 | `SettingsMixin` | `app/gui_settings.py` | Startup guard, system check, installer |
 | `LogsMixin` | `app/gui_logs.py` | Logs tab, log/log_gen/log_email helpers |
+
+Sub-mixins:
+
+| File | Responsibility |
+|---|---|
+| `app/gui_quality.py` | `QualityMixin`: `analyze_data_quality()` — inline quality metrics |
+| `app/gui_email_template.py` | `EmailTemplateMixin`: template editor, SMTP config, sender profiles, load/save/preview |
+| `app/gui_email_send.py` | `EmailSendMixin`: sending tab, SMTP thread, Outlook COM, per-row send |
 
 Shared infrastructure:
 
@@ -54,9 +62,9 @@ Shared infrastructure:
 | `app/app_paths.py` | All path constants + `_sync_template()`, `_check_r_packages_ready()` |
 | `utils/path_utils.py` | `get_user_base_dir()` for pipeline scripts |
 | `utils/filename_utils.py` | `safe_filename()`, `safe_display_name()` |
-| `utils/constants.py` | `SCORE_COLUMNS`, `REQUIRED_COLUMNS` |
+| `utils/constants.py` | `SCORE_COLUMNS`, `REQUIRED_COLUMNS`, timeout constants, `TEST_MODE_LABEL` |
 | `gui_system_check.py` | R / Quarto / TinyTeX runtime checks |
-| `email_tracker.py` | Per-recipient send-status JSON store |
+| `email_tracker.py` | Per-recipient send-status JSON store (thread-safe, `threading.Lock`) |
 | `update_checker.py` | Background GitHub release check |
 
 ### Path resolution (frozen vs dev)
@@ -155,13 +163,12 @@ emails via Outlook COM (Windows) or SMTP fallback (Office365)
 | M49 | GUI improvements: dead if/else, score constant, SMTP/Quarto timeout constants, silent log fix |
 | M50 | Module splitting: gui_email.py → template+send+tracker; gui_data.py → QualityMixin extracted |
 | M51 | Exception narrowing in pipeline scripts; type hints on gui_system_check.py functions |
-
-| M52 | Thread safety + resource leaks (REVIEW4.md 1.1, 1.2, 1.3, 2.1, 4.1) |
-| M53 | Security: keyring credential storage (REVIEW4.md 3.1) |
-| M54 | Code quality quick wins (REVIEW4.md 5.1, 5.2, 5.3) |
-| M55 | GUI audit: remove dead buttons (data_quality_dashboard.py / clean_data_enhanced.py missing); consolidate redundant controls |
-| M56 | GUI visual upgrade: modern ttk theme, improved layout, spacing, typography |
-| M57 | Email sender configuration: per-send "From" address selection, multiple sender profiles |
+| M52 | Thread safety + resource leaks: EmailTracker lock, log file lock, SMTP socket, ExcelFile context manager |
+| M53 | Security: SMTP password moved from plaintext config.yml to OS keyring |
+| M54 | Code quality: _find_row() helper, _cell_text() returns "", TEST_MODE_LABEL constant |
+| M55 | GUI audit: removed dead "Run Quality Dashboard" / "Run Data Cleaner" buttons (scripts missing) |
+| M56 | GUI visual upgrade: sv-ttk Sun Valley theme, card-style stats, Segoe UI fonts |
+| M57 | Email sender profiles: named profiles in config.yml, profile selector in SMTP tab, "Sending from:" in Send tab |
 
 **Current version: v0.21.57 — 268 tests, ruff clean**
 
