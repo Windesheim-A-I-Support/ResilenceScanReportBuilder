@@ -18,6 +18,13 @@ try:
 except ImportError:
     yaml = None  # type: ignore[assignment]
 
+try:
+    import keyring
+except ImportError:
+    keyring = None  # type: ignore[assignment]
+
+_KEYRING_SERVICE = "ResilienceScan"
+
 
 class EmailTemplateMixin:
     """Mixin providing the Email Template tab (editor, SMTP config, preview)."""
@@ -217,13 +224,15 @@ class EmailTemplateMixin:
                 "Invalid Port", "SMTP port must be a number (e.g. 587)."
             )
             return
+        username = self.smtp_username_var.get()
+        password = self.smtp_password_var.get()
         data = {
             "smtp": {
                 "server": self.smtp_server_var.get(),
                 "port": port,
                 "from_address": self.smtp_from_var.get(),
-                "username": self.smtp_username_var.get(),
-                "password": self.smtp_password_var.get(),
+                "username": username,
+                # password stored in OS credential store, not here
             }
         }
         try:
@@ -232,6 +241,15 @@ class EmailTemplateMixin:
                 yaml.dump(data, default_flow_style=False, allow_unicode=True),
                 encoding="utf-8",
             )
+            # Store password in OS credential store (keyring); fall back to
+            # a note in the YAML if keyring is unavailable on this platform.
+            if keyring is not None and username and password:
+                try:
+                    keyring.set_password(_KEYRING_SERVICE, username, password)
+                except Exception as kr_err:
+                    self.log(
+                        f"[WARNING] keyring unavailable: {kr_err} — password not saved"
+                    )
             messagebox.showinfo("Saved", f"Configuration saved to:\n{CONFIG_FILE}")
         except Exception as e:
             messagebox.showerror("Error", f"Could not save configuration:\n{e}")
@@ -252,10 +270,41 @@ class EmailTemplateMixin:
                 self.smtp_port_var.set(str(smtp["port"]))
             if smtp.get("from_address"):
                 self.smtp_from_var.set(smtp["from_address"])
-            if smtp.get("username"):
-                self.smtp_username_var.set(smtp["username"])
-            if smtp.get("password"):
-                self.smtp_password_var.set(smtp["password"])
+            username = smtp.get("username", "")
+            if username:
+                self.smtp_username_var.set(username)
+
+            # Load password: prefer keyring; fall back to legacy plaintext field
+            # and migrate it to keyring on first load.
+            password = ""
+            if keyring is not None and username:
+                try:
+                    password = keyring.get_password(_KEYRING_SERVICE, username) or ""
+                except Exception:
+                    password = ""
+            if not password and smtp.get("password"):
+                # Legacy plaintext — migrate to keyring and remove from YAML
+                password = smtp["password"]
+                if keyring is not None and username and password:
+                    try:
+                        keyring.set_password(_KEYRING_SERVICE, username, password)
+                        # Rewrite config without the password key
+                        smtp_clean = {k: v for k, v in smtp.items() if k != "password"}
+                        data["smtp"] = smtp_clean
+                        CONFIG_FILE.write_text(
+                            yaml.dump(
+                                data, default_flow_style=False, allow_unicode=True
+                            ),
+                            encoding="utf-8",
+                        )
+                        self.log(
+                            "[INFO] SMTP password migrated from config.yml to OS credential store"
+                        )
+                    except Exception as kr_err:
+                        self.log(f"[WARNING] keyring migration failed: {kr_err}")
+            if password:
+                self.smtp_password_var.set(password)
+
             # Load Outlook account priority list (empty list = use default account)
             self.outlook_accounts = data.get("outlook_accounts", [])
         except Exception as e:
