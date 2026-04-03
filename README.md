@@ -11,12 +11,12 @@ A Windows, Linux, and macOS desktop application that generates personalised PDF 
 <!-- DOWNLOAD_LINKS_START -->
 | Platform | Download |
 |----------|----------|
-| Windows | [Windows Installer (.exe)](https://github.com/Windesheim-A-I-Support/ResilenceScanReportBuilder/releases/download/v0.21.61/ResilenceScanReportBuilder-0.21.61-windows-setup.exe) |
-| Windows | [Portable ZIP](https://github.com/Windesheim-A-I-Support/ResilenceScanReportBuilder/releases/download/v0.21.61/ResilenceScanReportBuilder-0.21.61-windows-portable.zip) |
-| Linux | [.deb (Ubuntu/Debian)](https://github.com/Windesheim-A-I-Support/ResilenceScanReportBuilder/releases/download/v0.21.61/ResilenceScanReportBuilder-0.21.61-amd64.deb) |
-| Linux | [AppImage](https://github.com/Windesheim-A-I-Support/ResilenceScanReportBuilder/releases/download/v0.21.61/ResilenceScanReportBuilder-0.21.61-x86_64.AppImage) |
-| Linux | [Tarball (.tar.gz)](https://github.com/Windesheim-A-I-Support/ResilenceScanReportBuilder/releases/download/v0.21.61/ResilenceScanReportBuilder-0.21.61-linux-amd64.tar.gz) |
-| macOS | [macOS DMG (Apple Silicon)](https://github.com/Windesheim-A-I-Support/ResilenceScanReportBuilder/releases/download/v0.21.61/ResilenceScanReportBuilder-0.21.61-macos-arm64.dmg) |
+| Windows | [Windows Installer (.exe)](https://github.com/Windesheim-A-I-Support/ResilenceScanReportBuilder/releases/download/v0.21.62/ResilenceScanReportBuilder-0.21.62-windows-setup.exe) |
+| Windows | [Portable ZIP](https://github.com/Windesheim-A-I-Support/ResilenceScanReportBuilder/releases/download/v0.21.62/ResilenceScanReportBuilder-0.21.62-windows-portable.zip) |
+| Linux | [.deb (Ubuntu/Debian)](https://github.com/Windesheim-A-I-Support/ResilenceScanReportBuilder/releases/download/v0.21.62/ResilenceScanReportBuilder-0.21.62-amd64.deb) |
+| Linux | [AppImage](https://github.com/Windesheim-A-I-Support/ResilenceScanReportBuilder/releases/download/v0.21.62/ResilenceScanReportBuilder-0.21.62-x86_64.AppImage) |
+| Linux | [Tarball (.tar.gz)](https://github.com/Windesheim-A-I-Support/ResilenceScanReportBuilder/releases/download/v0.21.62/ResilenceScanReportBuilder-0.21.62-linux-amd64.tar.gz) |
+| macOS | [macOS DMG (Apple Silicon)](https://github.com/Windesheim-A-I-Support/ResilenceScanReportBuilder/releases/download/v0.21.62/ResilenceScanReportBuilder-0.21.62-macos-arm64.dmg) |
 <!-- DOWNLOAD_LINKS_END -->
 
 > Direct download links are updated automatically after each release by CI.  If the links above point to the releases page rather than a specific file, a new release is in progress.
