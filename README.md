@@ -372,19 +372,20 @@ Edit `%APPDATA%\ResilienceScan\config.yml` (Windows), `~/.local/share/resilience
 
 See [`CLAUDE.md`](CLAUDE.md) for the full milestone plan with gate conditions.
 
-| Milestone | Description | Status |
-|-----------|-------------|--------|
-| M1 | Fix CI, ship real app | ✅ v0.13.0 |
-| M2 | Fix paths, consolidate cleaners | ✅ v0.14.0 |
-| M3 | Implement data conversion | ✅ v0.15.0 |
-| M4 | End-to-end report generation | ✅ v0.16.0 |
-| M5 | Fix validation | ✅ v0.17.0 |
-| M6 | Email sending | ✅ v0.18.0 |
-| M7 | Startup system check guard | ✅ v0.19.0 |
-| M8 | Complete installer (R + Quarto + TinyTeX) | ✅ v0.20.5 |
-| M9 | Fix Windows installer: R path, LaTeX packages, capt-of | 🔧 v0.20.12–14 |
-| M10 | Fix report generation in installed app (.xlsx input + quarto path) | ⏳ TODO |
-| M11 | Anonymised sample dataset + pipeline smoke test | ⏳ TODO |
-| M12 | End-to-end CI pipeline test (Windows + Linux, real render) | ⏳ TODO |
-| M13 | In-app update checker | ⏳ TODO |
-| M14 | README download badges (auto-updated on release) | ⏳ TODO |
+| Range | What was built | Status |
+|-------|----------------|--------|
+| M1–M7 | Core app: CI, paths, data conversion, report generation, email, startup guard | ✅ v0.13–0.19 |
+| M8–M9 | Windows installer (R, Quarto, TinyTeX, LaTeX packages, capt-of stub) | ✅ v0.20.5–14 |
+| M10–M14 | Frozen-app path split, smoke tests, e2e CI, in-app update checker, README badges | ✅ v0.20–0.21 |
+| M15–M19 | Frozen-app render fixes, cross-platform CI, Windows real-machine testing | ✅ v0.21 |
+| M20–M23 | Setup completion feedback, email fixes, R hardening, SCROL template | ✅ v0.21 |
+| M24 | Independent code review → REVIEW.md (27 findings documented) | ✅ v0.21 |
+| M25–M29 | Thread-safety, frozen paths, dead-code removal, error handling, security | ✅ v0.21 |
+| M30–M35 | Shared utils, 69 tests, main.py → 5 mixins, encoding safety, log standardisation | ✅ v0.21 |
+| M36–M41 | Round-2 review fixes: paths, thread-safety, error handling, dead code, security | ✅ v0.21 |
+| M42–M45 | Installer hardening: stale-flag cleanup, smoke-test CI, in-app R repair | ✅ v0.21 |
+| M46 | SpreadsheetML / XLS support + upsert (new records first, reportsent preserved) | ✅ v0.21 |
+| M47 | JSON / JSONL / XLSM format support; dummy fixtures in tests/ | ✅ v0.21 |
+| M48–M57 | Encoding fix, dead code, constants, GUI improvements, module splitting, thread safety, SMTP keyring, Sun Valley theme, sender profiles | ✅ v0.21.57 |
+| M58–M61 | REVIEW5 findings | ✅ v0.21.61 |
+| M62 | macOS support: darwin path resolution, setup_macos.sh, DMG build, CI smoke test, 134 new tests (402 total) | ✅ v0.21.62 |
