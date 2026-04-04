@@ -37,7 +37,7 @@ jobs:
             quarto_url: "https://github.com/quarto-dev/quarto-cli/releases/download/v1.6.39/quarto-1.6.39-win.msi"
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       # ── Python ───────────────────────────────────────────────────────────────
       - uses: actions/setup-python@v5
