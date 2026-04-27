@@ -3,7 +3,7 @@ pandas>=2.0.0
 numpy>=1.24.0
 
 # Excel / ODS handling
-openpyxl>=3.0.0
+openpyxl>=3.1.5
 xlrd>=2.0.0
 odfpy>=1.4.1
 
