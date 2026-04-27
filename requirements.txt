@@ -1,5 +1,5 @@
 # Core data processing
-pandas>=2.0.0
+pandas>=3.0.2
 numpy>=1.24.0
 
 # Excel / ODS handling
