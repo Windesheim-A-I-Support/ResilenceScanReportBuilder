@@ -8,7 +8,7 @@ xlrd>=2.0.0
 odfpy>=1.4.1
 
 # PDF processing
-PyPDF2>=3.0.0
+PyPDF2>=3.0.1
 
 # Config
 pyyaml>=6.0
