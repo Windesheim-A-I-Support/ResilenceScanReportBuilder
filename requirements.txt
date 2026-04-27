@@ -12,7 +12,7 @@ PyPDF2>=3.0.0
 
 # Config
 pyyaml>=6.0
-keyring>=24.0.0
+keyring>=25.7.0
 
 # GUI theme
 sv-ttk>=2.6.0
